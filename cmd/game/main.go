@@ -1,27 +1,52 @@
 package main
 
 import (
+  "path/filepath"
+  "flag"
   "fmt"
   "os"
   "tezos-contests.izibi.com/tezos-play/api"
   "tezos-contests.izibi.com/tezos-play/keypair"
+  "tezos-contests.izibi.com/tezos-play/block_store"
 )
 
 func main() {
+  /*
+  initCommand := flag.NewFlagSet("count", flag.ExitOnError)
+  textPtr := flag.String("text", "", "Text to parse.")
+  metricPtr := flag.String("metric", "chars", "Metric {chars|words|lines};.")
+  uniquePtr := flag.Bool("unique", false, "Measure unique values of a metric.")
+  */
+
+  flag.Parse()
   if err := run(); err != nil {
     fmt.Fprintf(os.Stderr, "error: %v\n", err)
     os.Exit(1)
   }
 }
 
+type Config struct {
+  ApiBaseUrl string
+  StoreBaseUrl string
+  StoreCacheDir string
+}
+
 func run() error {
   var err error
+
+  config := Config{
+    ApiBaseUrl: "http://127.0.0.1:8100/task1/api",
+    StoreBaseUrl: "http://127.0.0.1:8100/task1/store",
+  }
+  config.StoreCacheDir, err = filepath.Abs("store")
+  if err != nil { return err }
+
+  remote := api.New(config.ApiBaseUrl)
+  store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
 
   var teamKeyPair *keypair.KeyPair
   teamKeyPair, err = keypair.Read("team.json")
   if err != nil { return err }
-
-  remote := api.New("http://127.0.0.1:8100/task1/api")
 
   chainHash, err := remote.NewChain(api.TaskParams{
       NbTeams: 1,
@@ -32,6 +57,8 @@ func run() error {
   )
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "chain  %s\n", chainHash)
+  _, err = store.Get(chainHash)
+  if err != nil { return err }
 
   gameKey, err := remote.NewGame(chainHash, 10, 60, 2);
   if err != nil { return err }
