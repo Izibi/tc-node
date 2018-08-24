@@ -29,6 +29,7 @@ type Config struct {
   ApiBaseUrl string
   StoreBaseUrl string
   StoreCacheDir string
+  WatchGameUrl string
 }
 
 func run() error {
@@ -37,6 +38,7 @@ func run() error {
   config := Config{
     ApiBaseUrl: "http://127.0.0.1:8100/task1/api",
     StoreBaseUrl: "http://127.0.0.1:8100/task1/store",
+    WatchGameUrl: "http://localhost:8100/task1/games",
   }
   config.StoreCacheDir, err = filepath.Abs("store")
   if err != nil { return err }
@@ -62,7 +64,7 @@ func run() error {
 
   gameKey, err := remote.NewGame(chainHash, 10, 60, 2);
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "game   %s\n", gameKey)
+  fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, gameKey)
 
   // const keys = ssbKeys.loadOrCreateSync("team-1");
 
