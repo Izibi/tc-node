@@ -1,0 +1,4 @@
+api_base: http://127.0.0.1:8100/task1/api
+store_base: http://127.0.0.1:8100/task1/store
+watch_game_url: http://localhost:8100/task1/games
+store_dir: ./store
