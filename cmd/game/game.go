@@ -5,7 +5,10 @@ import (
   "path/filepath"
   "flag"
   "fmt"
+  "io/ioutil"
   "os"
+
+  "gopkg.in/yaml.v2"
   "tezos-contests.izibi.com/tezos-play/api"
   "tezos-contests.izibi.com/tezos-play/keypair"
   //"tezos-contests.izibi.com/tezos-play/block_store"
@@ -20,19 +23,24 @@ func main() {
 }
 
 type Config struct {
-  ApiBaseUrl string
-  StoreBaseUrl string
-  StoreCacheDir string
-  WatchGameUrl string
+  ApiBaseUrl string `yaml:"api_base"`
+  StoreBaseUrl string `yaml:"store_base"`
+  StoreCacheDir string `yaml:"store_dir"`
+  WatchGameUrl string `yaml:"watch_game_url"`
 }
 
 func run() error {
   var err error
 
-  config := Config{
-    ApiBaseUrl: "http://127.0.0.1:8100/task1/api",
-    StoreBaseUrl: "http://127.0.0.1:8100/task1/store",
-    WatchGameUrl: "http://localhost:8100/task1/games",
+  var configFile []byte
+  configFile, err = ioutil.ReadFile("config.yaml")
+  if err != nil { return err }
+  var config Config
+  err = yaml.Unmarshal(configFile, &config)
+  if err != nil { return err }
+
+  if config.StoreCacheDir == "" {
+    config.StoreCacheDir = "store"
   }
   config.StoreCacheDir, err = filepath.Abs("store")
   if err != nil { return err }
@@ -59,25 +67,27 @@ func run() error {
   if err != nil { return err }
   */
 
-  gameKey, err := remote.NewGame(chainHash, 10, 60, 2);
+  game, err := remote.NewGame(chainHash, 10, 60, 4);
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, gameKey)
+  fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, game.Key)
 
-  err = remote.InputCommands(teamKeyPair, gameKey, 1, 1,
+  err = remote.InputCommands(game.Key, 1, teamKeyPair, 1,
     "start_skeleton (0, 5); echo \"ready\ngo!\"; grow_skeleton (1, 5); grow_skeleton (2, 5)")
   if err != nil { return err }
 
-  err = remote.InputCommands(teamKeyPair, gameKey, 1, 2,
+  err = remote.InputCommands(game.Key, 1, teamKeyPair, 2,
     "start_skeleton (5, 0); grow_skeleton (5, 1); echo \"thinking...\"; grow_skeleton (5, 2)")
   if err != nil { return err }
 
-  h1, err := remote.EndRound(teamKeyPair, gameKey, 1)
+  h1, err := remote.EndRound(game.Key, 1, teamKeyPair)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "round1 %s\n", h1)
 
-  h2, err := remote.EndRound(teamKeyPair, gameKey, 2)
+/*
+  h2, err := remote.EndRound(game.Key, 2, teamKeyPair)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "round2 %s\n", h2)
+*/
 
   return nil;
 }
