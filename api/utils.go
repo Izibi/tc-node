@@ -1,0 +1,51 @@
+
+package api
+
+import (
+  "bytes"
+  "encoding/json"
+  "errors"
+  "io"
+  "net/http"
+  "tezos-contests.izibi.com/tezos-play/keypair"
+  "tezos-contests.izibi.com/tezos-play/message"
+)
+
+type Server struct {
+  Base string
+}
+
+func New (base string) (*Server) {
+  return &Server{
+    Base: base,
+  }
+}
+
+func (s *Server) rawJsonPost(path string, body io.Reader, result interface{}) (err error) {
+  var resp *http.Response
+  resp, err = http.Post(s.Base + path,
+    "application/json; charset=utf-8", body)
+  if err != nil { return }
+  if resp.StatusCode < 200 || resp.StatusCode >= 299 {
+    err = errors.New(resp.Status)
+    return
+  }
+  if resp.StatusCode == 200 {
+    err = json.NewDecoder(resp.Body).Decode(&result)
+  }
+  return
+}
+
+func (s *Server) PlainRequest(path string, body interface{}, result interface{}) (err error) {
+  b := new(bytes.Buffer)
+  json.NewEncoder(b).Encode(body)
+  return s.rawJsonPost(path, b, result)
+}
+
+func (s *Server) SignedRequest(keyPair *keypair.KeyPair, path string, msg interface{}, result interface{}) (err error) {
+  var b []byte
+  b, err = message.Sign(keyPair, msg)
+  if err != nil { return }
+  err = s.rawJsonPost(path, bytes.NewReader(b), result)
+  return
+}
