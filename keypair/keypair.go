@@ -14,7 +14,7 @@ type KeyPair struct {
   Private string `json:"private"`
 }
 
-func (s KeyPair) RawPrivate() ([]byte, error) {
+func (s *KeyPair) RawPrivate() ([]byte, error) {
   b64 := strings.Split(s.Private, ".")[0]
   return base64.StdEncoding.DecodeString(b64)
 }

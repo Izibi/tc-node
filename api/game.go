@@ -48,19 +48,22 @@ type EndRoundResponse struct {
   NewBlock string `json:"new_block"`
 }
 
-func (s *Server) NewGame(chainHash string, nbRounds uint32, roundDuration uint32, cyclesPerRound uint32) (res ShowGameResponse, err error) {
+func (s *Server) NewGame(chainHash string, nbRounds uint32, roundDuration uint32, cyclesPerRound uint32) (res *ShowGameResponse, err error) {
+  res = &ShowGameResponse{}
   err = s.PlainRequest("/games", NewGameRequest{
     FirstBlock: chainHash,
     NbRounds: nbRounds,
     RoundDuration: roundDuration,
     CyclesPerRound: cyclesPerRound,
-  }, &res)
+  }, res)
   return
 }
 
-func (s *Server) ShowGame(gameKey string) (res ShowGameResponse, err error) {
-  err = s.PlainRequest("/games/"+gameKey, nil, &res)
-  return
+func (s *Server) ShowGame(gameKey string) (res *ShowGameResponse, err error) {
+  res = &ShowGameResponse{}
+  err = s.GetRequest("/games/"+gameKey, res)
+  if err != nil { return nil, err }
+  return res, nil
 }
 
 func (s *Server) InputCommands (gameKey string, round uint32, teamKeyPair *keypair.KeyPair, teamPlayer uint32, commands string) error {
