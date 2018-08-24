@@ -21,10 +21,14 @@ func New (base string) (*Server) {
   }
 }
 
-func (s *Server) rawJsonPost(path string, body io.Reader, result interface{}) (err error) {
+func (s *Server) request(path string, body io.Reader, result interface{}) (err error) {
   var resp *http.Response
-  resp, err = http.Post(s.Base + path,
-    "application/json; charset=utf-8", body)
+  if body == nil {
+    resp, err = http.Get(s.Base + path)
+  } else {
+    resp, err = http.Post(s.Base + path,
+      "application/json; charset=utf-8", body)
+  }
   if err != nil { return }
   if resp.StatusCode < 200 || resp.StatusCode >= 299 {
     err = errors.New(resp.Status)
@@ -37,15 +41,18 @@ func (s *Server) rawJsonPost(path string, body io.Reader, result interface{}) (e
 }
 
 func (s *Server) PlainRequest(path string, body interface{}, result interface{}) (err error) {
-  b := new(bytes.Buffer)
-  json.NewEncoder(b).Encode(body)
-  return s.rawJsonPost(path, b, result)
+  var b *bytes.Buffer
+  if body != nil {
+    b = new(bytes.Buffer)
+    json.NewEncoder(b).Encode(body)
+  }
+  return s.request(path, b, result)
 }
 
 func (s *Server) SignedRequest(keyPair *keypair.KeyPair, path string, msg interface{}, result interface{}) (err error) {
   var b []byte
   b, err = message.Sign(keyPair, msg)
   if err != nil { return }
-  err = s.rawJsonPost(path, bytes.NewReader(b), result)
+  err = s.request(path, bytes.NewReader(b), result)
   return
 }

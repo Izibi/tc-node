@@ -61,6 +61,11 @@ func (s *Server) NewGame(chainHash string, nbRounds uint32, roundDuration uint32
   return res.Key, nil
 }
 
+func (s *Server) ShowGame(gameKey string) (res ShowGameResponse, err error) {
+  err = s.PlainRequest("/games/"+gameKey, nil, &res)
+  return
+}
+
 func (s *Server) InputCommands (teamKeyPair *keypair.KeyPair, gameKey string, round uint32, player uint32, commands string) error {
   return s.SignedRequest(teamKeyPair, "/games/commands", InputCommandsRequest{
     TeamKey: teamKeyPair.Public,
