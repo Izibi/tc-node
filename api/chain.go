@@ -2,7 +2,7 @@
 package api
 
 type TaskParams struct {
-  NbTeams uint32 `json:"nb_teams"`
+  NbPlayers uint32 `json:"nb_players"`
   MapSide uint32 `json:"map_side"`
 }
 

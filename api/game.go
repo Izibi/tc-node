@@ -7,20 +7,21 @@ import (
 
 type NewGameRequest struct {
   FirstBlock string `json:"first_block"`
-  NbTeams uint32 `json:"nb_teams"`
+  NbPlayers uint32 `json:"nb_players"`
   NbRounds uint32 `json:"nb_rounds"`
   RoundDuration uint32 `json:"round_duration"`
   CyclesPerRound uint32 `json:"cycles_per_round"`
   // Signature string `json:"signature"`
 }
-type GameTeamInfos struct {
-  Number uint32 `json:"number"`
-  Key string `json:"key"`
+type PlayerInfos struct {
+  Rank uint32 `json:"rank"`
+  TeamKey string `json:"team_key"`
+  TeamPlayer uint32 `json:"team_player"`
 }
 type ShowGameResponse struct {
   Key string `json:"key"`
-  NbTeams uint32 `json:"nb_teams"`
-  Teams []GameTeamInfos `json:"teams"`
+  NbPlayers uint32 `json:"nb_players"`
+  Player []PlayerInfos `json:"players"`
   NbRounds uint32 `json:"nb_rounds"`
   CurrentRound uint32 `json:"current_round"`
   RoundDuration uint32 `json:"round_duration"`
@@ -30,9 +31,10 @@ type ShowGameResponse struct {
   CurrentBlock string `json:"current_block"`
 }
 
-type InputTeamCommandsRequest struct {
+type InputCommandsRequest struct {
   TeamKey string `json:"team_key"`
   GameKey string `json:"game_key"`
+  PlayerNumber uint32 `json:"player_number"`
   Commands string `json:"commands"`
   ValidForRound uint32 `json:"valid_for_round"`
 }
@@ -59,12 +61,13 @@ func (s *Server) NewGame(chainHash string, nbRounds uint32, roundDuration uint32
   return res.Key, nil
 }
 
-func (s *Server) InputTeamCommands (teamKeyPair *keypair.KeyPair, gameKey string, round uint32, commands string) error {
-  return s.SignedRequest(teamKeyPair, "/games/commands", InputTeamCommandsRequest{
+func (s *Server) InputCommands (teamKeyPair *keypair.KeyPair, gameKey string, round uint32, player uint32, commands string) error {
+  return s.SignedRequest(teamKeyPair, "/games/commands", InputCommandsRequest{
     TeamKey: teamKeyPair.Public,
     GameKey: gameKey,
     Commands: commands,
     ValidForRound: round,
+    PlayerNumber: player,
   }, nil)
 }
 
