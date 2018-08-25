@@ -17,29 +17,31 @@ import (
   "tezos-contests.izibi.com/tezos-play/block_store"
 )
 
-func main() {
-  flag.Parse()
-  if err := run(); err != nil {
-    fmt.Fprintf(os.Stderr, "error: %v\n", err)
-    os.Exit(1)
-  }
-}
-
 type Config struct {
+  BaseUrl string `yaml:"base_url"`
   ApiBaseUrl string `yaml:"api_base"`
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
   WatchGameUrl string `yaml:"watch_game_url"`
   TaskParams api.TaskParams `yaml:"task_params"`
   GameParams api.GameParams `yaml:"game_params"`
+  Players []string `yaml:"players"`
 }
 
-func LoadGame() (res *api.GameState, err error) {
+var config Config
+var remote *api.Server
+var game *api.GameState
+var store *block_store.Store
+
+func LoadGame() (*api.GameState, error) {
+  var err error
   var b []byte
   b, err = ioutil.ReadFile("game.json")
   if err != nil { return nil, err }
+  res := new(api.GameState)
   err = json.NewDecoder(bytes.NewBuffer(b)).Decode(res)
-  return
+  if err != nil { return nil, err }
+  return res, nil
 }
 
 func SaveGame(game *api.GameState) (err error) {
@@ -60,101 +62,128 @@ func LoadLibrary() (intf string, impl string, err error) {
   return
 }
 
-func run() error {
+func Configure() error {
   var err error
-
   var configFile []byte
   configFile, err = ioutil.ReadFile("config.yaml")
   if err != nil { return err }
-  var config Config
   err = yaml.Unmarshal(configFile, &config)
   if err != nil { return err }
-  fmt.Println("config %v", config)
-
+  if config.ApiBaseUrl == "" {
+    config.ApiBaseUrl = config.BaseUrl + "/api"
+  }
+  if config.StoreBaseUrl == "" {
+    config.StoreBaseUrl = config.BaseUrl + "/store"
+  }
+  if config.WatchGameUrl == "" {
+    config.WatchGameUrl = config.BaseUrl + "/games"
+  }
   if config.StoreCacheDir == "" {
     config.StoreCacheDir = "store"
   }
-  config.StoreCacheDir, err = filepath.Abs("store")
+  config.StoreCacheDir, err = filepath.Abs(config.StoreCacheDir)
   if err != nil { return err }
+  remote = api.New(config.ApiBaseUrl)
+  store = block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
+  return nil
+}
 
-  remote := api.New(config.ApiBaseUrl)
-  store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
+func main() {
+  var err error
+  flag.Parse()
+  err = Configure()
+  if err != nil {
+    fmt.Fprintf(os.Stderr, "init error: %v\n", err)
+    os.Exit(1)
+  }
+  switch cmd := flag.Arg(0); cmd {
+  case "start":
+    err = startGame()
+  case "join":
+    err = joinGame(flag.Arg(1))
+  case "send":
+    err = sendCommands()
+  case "next":
+    err = endOfRound()
+  default:
+    err = errors.New("unknown command")
+  }
+  if err != nil {
+    fmt.Fprintf(os.Stderr, "error: %v\n", err)
+    os.Exit(1)
+  }
+}
 
-  var teamKeyPair *keypair.KeyPair
-  teamKeyPair, err = keypair.Read("team.json")
-  if err != nil { return err }
-
+func startGame() error {
+  var err error
   var intf string
   var impl string
   intf, impl, err = LoadLibrary()
   if err != nil {
     return errors.New("library source code is missing")
   }
-
-  gameOk := false
-  var game *api.GameState
   var chainHash string
   game, err = LoadGame()
-  if err == nil && config.TaskParams == game.TaskParams {
-    chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
-    if err != nil {
-      return errors.New("error verifying chain")
-    }
-    if game.GameParams.FirstBlock != chainHash {
-      return errors.New("current game is for a different chain")
-    }
-    gameOk = true
-  } else {
-    chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
-    if err != nil {
-      return errors.New("error creating chain")
-    }
-    _, err = store.Get(chainHash)
-    if err != nil { return err }
-    config.GameParams.FirstBlock = chainHash
+  chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
+  if err != nil {
+    return errors.New("error creating chain")
   }
-
-  if !gameOk {
-    game, err = remote.NewGame(config.GameParams);
-    if err != nil { return err }
-    err = SaveGame(game)
-    if err != nil { return err }
-  }
-
-  if game == nil {
-    return errors.New("game init failed")
-  }
+  _, err = store.Get(chainHash)
+  if err != nil { return err }
+  config.GameParams.FirstBlock = chainHash
+  game, err = remote.NewGame(config.GameParams);
+  if err != nil { return err }
+  err = SaveGame(game)
+  if err != nil { return err }
   fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, game.Key)
+  store.Clear()
+  return nil
+}
 
-  err = remote.InputCommands(game.Key, 1, teamKeyPair, 1,
-    "start_skeleton (0, 5); echo \"ready\ngo!\"; grow_skeleton (1, 5); grow_skeleton (2, 5)")
-  if err != nil { return err }
-
-  err = remote.InputCommands(game.Key, 1, teamKeyPair, 2,
-    "start_skeleton (5, 0); grow_skeleton (5, 1); echo \"thinking...\"; grow_skeleton (5, 2)")
-  if err != nil { return err }
-
-  var h1 string
-  h1, err = remote.EndRound(game.Key, 1, teamKeyPair)
-  if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "round1 %s\n", h1)
-
-  game, err = remote.ShowGame(game.Key)
-  if err != nil { return err }
-  _, err = store.Get(game.CurrentBlock)
+func joinGame(gameKey string) error {
+  var err error
+  game, err = remote.ShowGame(gameKey)
   if err != nil { return err }
   err = SaveGame(game)
   if err != nil { return err }
-
-  h2, err := remote.EndRound(game.Key, 2, teamKeyPair)
+  store.Clear()
+  err = store.GetChain(game.CurrentBlock)
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "round2 %s\n", h2)
+  return nil
+}
 
+func sendCommands() (err error) {
+
+  game, err = LoadGame()
+  if err != nil { return }
+
+  var teamKeyPair *keypair.KeyPair
+  teamKeyPair, err = keypair.Read("team.json")
+  if err != nil { return }
+
+  for number, prog := range config.Players {
+    fmt.Fprintf(os.Stderr, "run %s\n", prog)
+    err = remote.InputCommands(game.Key, game.CurrentRound, teamKeyPair, uint32(number),
+      "start_skeleton (0, 5); echo \"ready\ngo!\"; grow_skeleton (1, 5); grow_skeleton (2, 5)")
+    if err != nil { return }
+  }
+
+  return
+}
+
+func endOfRound() (err error) {
+  game, err = LoadGame()
+  if err != nil { return }
+  var teamKeyPair *keypair.KeyPair
+  teamKeyPair, err = keypair.Read("team.json")
+  if err != nil { return }
+  _, err = remote.EndRound(game.Key, game.CurrentRound, teamKeyPair)
+  if err != nil { return }
   game, err = remote.ShowGame(game.Key)
-  if err != nil { return err }
+  if err != nil { return }
   _, err = store.Get(game.CurrentBlock)
+  if err != nil { return }
   err = SaveGame(game)
-  if err != nil { return err }
-
-  return nil;
+  if err != nil { return }
+  return
 }

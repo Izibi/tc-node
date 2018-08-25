@@ -37,6 +37,14 @@ func New (baseUrl string, cacheDir string) (*Store) {
   }
 }
 
+func (s *Store) Clear() (err error) {
+  err = os.RemoveAll(s.BlockDir)
+  if err != nil { return }
+  err = os.MkdirAll(s.BlockDir, os.ModePerm)
+  if err != nil { return }
+  return
+}
+
 func (s *Store) Get(hash string) (res *Block, err error) {
   res = s.hashMap[hash]
   err = nil
@@ -59,6 +67,17 @@ func (s *Store) Get(hash string) (res *Block, err error) {
   os.Rename(blockDir, seqDir)
   if err != nil { return }
   res = block
+  return
+}
+
+func (s *Store) GetChain(hash string) (err error) {
+  var block *Block
+  for true {
+    block, err = s.Get(hash)
+    if err != nil { return err }
+    hash = block.Parent
+    if hash == "" { break }
+  }
   return
 }
 
