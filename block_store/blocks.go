@@ -4,6 +4,7 @@ package block_store
 import (
   "archive/zip"
   "bytes"
+  "encoding/json"
   "errors"
   "fmt"
   "io"
@@ -11,39 +12,57 @@ import (
   "net/http"
   "os"
   "path"
+  "strconv"
   "strings"
 )
 
-type Store struct {
-  BaseUrl string
-  CacheDir string
-  cacheMap map[string]interface{}
+type Block struct {
+  Protocol uint32 `json:"protocol"`
+  Sequence uint32 `json:"sequence"`
+  Chain string `json:"chain"`
+  Parent string `json:"parent"`
 }
 
-type Block struct {
-
+type Store struct {
+  BaseUrl string
+  BlockDir string
+  hashMap map[string]*Block
 }
 
 func New (baseUrl string, cacheDir string) (*Store) {
   return &Store{
     BaseUrl: baseUrl,
-    CacheDir: cacheDir,
+    BlockDir: cacheDir,
+    hashMap: map[string]*Block{},
   }
 }
 
-func (s *Store) Get(hash string) (res interface{}, err error) {
-  res = s.cacheMap[hash]
+func (s *Store) Get(hash string) (res *Block, err error) {
+  res = s.hashMap[hash]
   err = nil
   if res != nil { return }
-  blockDir := path.Join(s.CacheDir, hash)
+  blockDir := path.Join(s.BlockDir, hash)
   err = os.MkdirAll(blockDir, os.ModePerm)
-  if res != nil { return }
-  err = s.Fetch(hash, blockDir)
-  // TODO: load blockDir/block.json
+  if err != nil { return }
+  err = s.fetch(hash, blockDir)
+  if err != nil { return }
+  var b []byte
+  b, err = ioutil.ReadFile(path.Join(blockDir, "block.json"))
+  if err != nil { return }
+  block := new(Block)
+  err = json.Unmarshal(b, block)
+  if err != nil { return }
+  s.hashMap[hash] = block
+  seqDir := path.Join(s.BlockDir, strconv.FormatUint(uint64(block.Sequence), 10))
+  err = os.RemoveAll(seqDir)
+  if err != nil { return }
+  os.Rename(blockDir, seqDir)
+  if err != nil { return }
+  res = block
   return
 }
 
-func (s *Store) Fetch(hash string, dest string) (err error) {
+func (s *Store) fetch(hash string, dest string) (err error) {
 
   destPrefix := path.Clean(dest) + string(os.PathSeparator)
 
@@ -83,6 +102,8 @@ func (s *Store) Fetch(hash string, dest string) (err error) {
       if err != nil { return }
     }
   }
+
+  /* Load sequence from block.json */
 
   return
 }
