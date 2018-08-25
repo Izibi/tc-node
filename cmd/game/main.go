@@ -4,6 +4,7 @@ package main
 import (
   "bytes"
   "encoding/json"
+  "errors"
   "flag"
   "fmt"
   "io/ioutil"
@@ -29,12 +30,33 @@ type Config struct {
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
   WatchGameUrl string `yaml:"watch_game_url"`
+  TaskParams api.TaskParams `yaml:"task_params"`
+  GameParams api.GameParams `yaml:"game_params"`
 }
 
-func SaveGame(game *api.ShowGameResponse) (err error) {
+func LoadGame() (res *api.GameState, err error) {
+  var b []byte
+  b, err = ioutil.ReadFile("game.json")
+  if err != nil { return nil, err }
+  err = json.NewDecoder(bytes.NewBuffer(b)).Decode(res)
+  return
+}
+
+func SaveGame(game *api.GameState) (err error) {
   buf := new(bytes.Buffer)
   json.NewEncoder(buf).Encode(game)
   err = ioutil.WriteFile("game.json", buf.Bytes(), 0644)
+  return
+}
+
+func LoadLibrary() (intf string, impl string, err error) {
+  var b []byte
+  b, err = ioutil.ReadFile("library.mli")
+  if err != nil { return "", "", err }
+  intf = string(b)
+  b, err = ioutil.ReadFile("library.ml")
+  if err != nil { return "", "", err }
+  impl = string(b)
   return
 }
 
@@ -47,6 +69,7 @@ func run() error {
   var config Config
   err = yaml.Unmarshal(configFile, &config)
   if err != nil { return err }
+  fmt.Println("config %v", config)
 
   if config.StoreCacheDir == "" {
     config.StoreCacheDir = "store"
@@ -61,23 +84,47 @@ func run() error {
   teamKeyPair, err = keypair.Read("team.json")
   if err != nil { return err }
 
-  chainHash, err := remote.NewChain(api.TaskParams{
-      NbPlayers: 2,
-      MapSide: 11,
-    },
-    "val start_skeleton : int * int -> unit\nval grow_skeleton : int * int -> unit\nval echo : string -> unit",
-    "let start_skeleton (x, y) =\n  try\n    if Task.try_start_skeleton (x, y) then\n      print_string \"start_skeleton succeeded\\n\"\n    else\n      print_string \"start_skeleton returned false\\n\"\n  with ex ->\n    print_string \"start_skeleton raised an exception\";\n    print_string (Printexc.to_string ex);\n    print_string \"\\n\"\n\nlet grow_skeleton (x, y) =\n  try\n    if Task.try_grow_skeleton (x, y) then\n      print_string \"grow_skeleton succeeded\\n\"\n    else\n      print_string \"grow_skeleton returned false\\n\"\n  with ex ->\n    print_string \"grow_skeleton raised an exception\";\n    print_string (Printexc.to_string ex);\n    print_string \"\\n\"\nlet echo s = print_string s; print_string \"\n\"",
-  )
-  if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "chain  %s\n", chainHash)
-  _, err = store.Get(chainHash)
-  if err != nil { return err }
+  var intf string
+  var impl string
+  intf, impl, err = LoadLibrary()
+  if err != nil {
+    return errors.New("library source code is missing")
+  }
 
-  game, err := remote.NewGame(chainHash, 10, 60, 2);
-  if err != nil { return err }
+  gameOk := false
+  var game *api.GameState
+  var chainHash string
+  game, err = LoadGame()
+  if err == nil && config.TaskParams == game.TaskParams {
+    chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
+    if err != nil {
+      return errors.New("error verifying chain")
+    }
+    if game.GameParams.FirstBlock != chainHash {
+      return errors.New("current game is for a different chain")
+    }
+    gameOk = true
+  } else {
+    chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
+    if err != nil {
+      return errors.New("error creating chain")
+    }
+    _, err = store.Get(chainHash)
+    if err != nil { return err }
+    config.GameParams.FirstBlock = chainHash
+  }
+
+  if !gameOk {
+    game, err = remote.NewGame(config.GameParams);
+    if err != nil { return err }
+    err = SaveGame(game)
+    if err != nil { return err }
+  }
+
+  if game == nil {
+    return errors.New("game init failed")
+  }
   fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, game.Key)
-  err = SaveGame(game)
-  if err != nil { return err }
 
   err = remote.InputCommands(game.Key, 1, teamKeyPair, 1,
     "start_skeleton (0, 5); echo \"ready\ngo!\"; grow_skeleton (1, 5); grow_skeleton (2, 5)")

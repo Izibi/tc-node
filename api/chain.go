@@ -1,11 +1,6 @@
 
 package api
 
-type TaskParams struct {
-  NbPlayers uint32 `json:"nb_players"`
-  MapSide uint32 `json:"map_side"`
-}
-
 type NewChainRequest struct {
   TaskParams TaskParams `json:"task_params"`
   LibraryInterface string `json:"library_interface"`
