@@ -1,4 +1,12 @@
-api_base: http://127.0.0.1:8100/task1/api
-store_base: http://127.0.0.1:8100/task1/store
-watch_game_url: http://localhost:8100/task1/games
-store_dir: ./store
+base_url: http://127.0.0.1:8100/task1
+store_dir: store
+task_params:
+  nb_players: 1
+  map_side: 11
+game_params:
+  nb_rounds: 10
+  round_duration: 60
+  cycles_per_round: 2
+players:
+  - number: 1
+    command_line: "./play"
