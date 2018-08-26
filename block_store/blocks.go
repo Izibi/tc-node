@@ -11,7 +11,7 @@ import (
   "io/ioutil"
   "net/http"
   "os"
-  "path"
+  "path/filepath"
   "strconv"
   "strings"
 )
@@ -49,19 +49,19 @@ func (s *Store) Get(hash string) (res *Block, err error) {
   res = s.hashMap[hash]
   err = nil
   if res != nil { return }
-  blockDir := path.Join(s.BlockDir, hash)
+  blockDir := filepath.Join(s.BlockDir, hash)
   err = os.MkdirAll(blockDir, os.ModePerm)
   if err != nil { return }
   err = s.fetch(hash, blockDir)
   if err != nil { return }
   var b []byte
-  b, err = ioutil.ReadFile(path.Join(blockDir, "block.json"))
+  b, err = ioutil.ReadFile(filepath.Join(blockDir, "block.json"))
   if err != nil { return }
   block := new(Block)
   err = json.Unmarshal(b, block)
   if err != nil { return }
   s.hashMap[hash] = block
-  seqDir := path.Join(s.BlockDir, strconv.FormatUint(uint64(block.Sequence), 10))
+  seqDir := filepath.Join(s.BlockDir, strconv.FormatUint(uint64(block.Sequence), 10))
   err = os.RemoveAll(seqDir)
   if err != nil { return }
   os.Rename(blockDir, seqDir)
@@ -83,7 +83,7 @@ func (s *Store) GetChain(hash string) (err error) {
 
 func (s *Store) fetch(hash string, dest string) (err error) {
 
-  destPrefix := path.Clean(dest) + string(os.PathSeparator)
+  destPrefix := filepath.Clean(dest) + string(os.PathSeparator)
 
   var resp *http.Response
   resp, err = http.Get(s.BaseUrl + "/" + hash + ".zip")
@@ -99,7 +99,7 @@ func (s *Store) fetch(hash string, dest string) (err error) {
   if err != nil { return }
 
   for _, f := range r.File {
-    fpath := path.Join(dest, f.Name)
+    fpath := filepath.Join(dest, f.Name)
     if !strings.HasPrefix(fpath, destPrefix) {
       err = fmt.Errorf("illegal file path %s", fpath)
       return
@@ -107,7 +107,7 @@ func (s *Store) fetch(hash string, dest string) (err error) {
     if f.FileInfo().IsDir() {
       os.MkdirAll(fpath, os.ModePerm)
     } else {
-      err = os.MkdirAll(path.Dir(fpath), os.ModePerm)
+      err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm)
       if err != nil { return }
       var outFile *os.File
       outFile, err = os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
