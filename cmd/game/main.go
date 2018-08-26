@@ -9,7 +9,9 @@ import (
   "fmt"
   "io/ioutil"
   "os"
+  "os/exec"
   "path/filepath"
+  "strings"
 
   "gopkg.in/yaml.v2"
   "tezos-contests.izibi.com/tezos-play/api"
@@ -25,7 +27,17 @@ type Config struct {
   WatchGameUrl string `yaml:"watch_game_url"`
   TaskParams api.TaskParams `yaml:"task_params"`
   GameParams api.GameParams `yaml:"game_params"`
-  Players []string `yaml:"players"`
+  Players []PlayerConfig `yaml:"players"`
+}
+
+type PlayerConfig struct {
+  Number uint32 `yaml:"number"`
+  CommandLine string `yaml:"command_line"`
+}
+
+type CommandEnv struct {
+  RoundNumber uint32
+  PlayerNumber uint32
 }
 
 var config Config
@@ -152,6 +164,21 @@ func joinGame(gameKey string) error {
   return nil
 }
 
+func runCommand(shellCmd string, env CommandEnv) (string, error) {
+  cmd := exec.Command("sh", "-c", shellCmd)
+  cmd.Env = append(os.Environ(),
+    fmt.Sprintf("ROUND_NUMBER=%d", env.RoundNumber),
+    fmt.Sprintf("PLAYER_NUMBER=%d", env.PlayerNumber),
+  )
+  input := fmt.Sprintf("%d %d", env.RoundNumber, env.PlayerNumber)
+  cmd.Stdin = strings.NewReader(input)
+  var out bytes.Buffer
+  cmd.Stdout = &out
+  err := cmd.Run()
+  if err != nil { return "", err }
+  return out.String(), nil
+}
+
 func sendCommands() (err error) {
 
   game, err = LoadGame()
@@ -161,10 +188,16 @@ func sendCommands() (err error) {
   teamKeyPair, err = keypair.Read("team.json")
   if err != nil { return }
 
-  for number, prog := range config.Players {
-    fmt.Fprintf(os.Stderr, "run %s\n", prog)
-    err = remote.InputCommands(game.Key, game.CurrentRound, teamKeyPair, uint32(number),
-      "start_skeleton (0, 5); echo \"ready\ngo!\"; grow_skeleton (1, 5); grow_skeleton (2, 5)")
+  for _, player := range config.Players {
+    var commands string
+    commands, err = runCommand(player.CommandLine, CommandEnv{
+      RoundNumber: game.CurrentRound,
+      PlayerNumber: player.Number,
+    })
+    if err != nil { return }
+    err = remote.InputCommands(
+      game.Key, game.CurrentRound, teamKeyPair, uint32(player.Number),
+      commands)
     if err != nil { return }
   }
 
