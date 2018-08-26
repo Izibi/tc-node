@@ -5,8 +5,10 @@ import (
   "bytes"
   "encoding/json"
   "errors"
+  "fmt"
   "io"
   "net/http"
+  "os"
   "tezos-contests.izibi.com/tezos-play/keypair"
   "tezos-contests.izibi.com/tezos-play/message"
 )
@@ -26,6 +28,9 @@ func (s *Server) GetRequest(path string, result interface{}) (err error) {
   resp, err = http.Get(s.Base + path)
   if err != nil { return }
   if resp.StatusCode < 200 || resp.StatusCode >= 299 {
+    buf := new(bytes.Buffer)
+    buf.ReadFrom(resp.Body)
+    fmt.Fprintln(os.Stderr, buf.String())
     err = errors.New(resp.Status)
     return
   }
@@ -41,6 +46,9 @@ func (s *Server) postRequest(path string, body io.Reader, result interface{}) (e
     "application/json; charset=utf-8", body)
   if err != nil { return }
   if resp.StatusCode < 200 || resp.StatusCode >= 299 {
+    buf := new(bytes.Buffer)
+    buf.ReadFrom(resp.Body)
+    fmt.Fprintln(os.Stderr, buf.String())
     err = errors.New(resp.Status)
     return
   }
