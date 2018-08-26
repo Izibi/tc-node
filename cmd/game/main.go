@@ -130,25 +130,30 @@ func startGame() error {
   var err error
   var intf string
   var impl string
+  fmt.Fprintf(os.Stderr, "Loading library\n")
   intf, impl, err = LoadLibrary()
   if err != nil {
     return errors.New("library source code is missing")
   }
+  fmt.Fprintf(os.Stderr, "Creating chain\n")
   var chainHash string
-  game, err = LoadGame()
   chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
   if err != nil {
     return errors.New("error creating chain")
   }
-  _, err = store.Get(chainHash)
-  if err != nil { return err }
   config.GameParams.FirstBlock = chainHash
+  fmt.Fprintf(os.Stderr, "Creating game\n")
   game, err = remote.NewGame(config.GameParams);
   if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Saving game\n")
   err = SaveGame(game)
+  fmt.Fprintf(os.Stderr, "Clearing store\n")
+  err = store.Clear()
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "%s/%s\n", config.WatchGameUrl, game.Key)
-  store.Clear()
+  fmt.Fprintf(os.Stderr, "Retrieving chain\n")
+  _, err = store.Get(chainHash)
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
   return nil
 }
 
