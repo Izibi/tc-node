@@ -33,8 +33,13 @@ type AnyBlock struct {
 
 type ProtocolBlock struct {
   AnyBlock
-  LibraryInterface string `json:"library_interface"`
-  LibraryImplementation string `json:"library_implementation"`
+  Interface string `json:"interface"`
+  Implementation string `json:"implementation"`
+}
+
+type SetupBlock struct {
+  AnyBlock
+  GameParams GameParams `json:"game_params"`
 }
 
 type PlayerCommand struct {
