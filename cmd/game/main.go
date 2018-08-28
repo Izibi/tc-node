@@ -24,6 +24,7 @@ type Config struct {
   ApiBaseUrl string `yaml:"api_base"`
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
+  KeypairFilename string `yaml:"keypair"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams api.GameParams `yaml:"new_game_params"`
   Players []PlayerConfig `yaml:"my_players"`
@@ -92,6 +93,9 @@ func Configure() error {
   if config.StoreCacheDir == "" {
     config.StoreCacheDir = "store"
   }
+  if config.KeypairFilename == "" {
+    config.KeypairFilename = "team.json"
+  }
   config.StoreCacheDir, err = filepath.Abs(config.StoreCacheDir)
   if err != nil { return err }
   remote = api.New(config.ApiBaseUrl)
@@ -108,6 +112,8 @@ func main() {
     os.Exit(1)
   }
   switch cmd := flag.Arg(0); cmd {
+  case "keypair":
+    err = generateKeypair()
   case "new":
     err = startGame() /* XXX rename */
   case "join": /* TODO: and run */
@@ -123,6 +129,14 @@ func main() {
     fmt.Fprintf(os.Stderr, "error: %v\n", err)
     os.Exit(1)
   }
+}
+
+func generateKeypair() (err error) {
+  var kp *keypair.KeyPair
+  kp, err = keypair.New()
+  if err != nil { return err}
+  err = kp.Write(config.KeypairFilename)
+  return
 }
 
 func startGame() error {
@@ -189,7 +203,7 @@ func endOfRound() (err error) {
   if err != nil { return }
   /* Load key pair */
   var teamKeyPair *keypair.KeyPair
-  teamKeyPair, err = keypair.Read("team.json")
+  teamKeyPair, err = keypair.Read(config.KeypairFilename)
   if err != nil { return }
   /* Send commands */
   for _, player := range config.Players {
