@@ -159,7 +159,7 @@ func startGame() error {
   err = store.Clear()
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Retrieving blockchain\n")
-  _, err = store.Get(protoHash)
+  err = store.GetChain(game.CurrentBlock)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
   return nil
