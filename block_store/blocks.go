@@ -17,10 +17,9 @@ import (
 )
 
 type Block struct {
-  Protocol uint32 `json:"protocol"`
-  Sequence uint32 `json:"sequence"`
-  Chain string `json:"chain"`
+  Type string `json:"type"`
   Parent string `json:"parent"`
+  Sequence uint32 `json:"sequence"`
 }
 
 type Store struct {

@@ -1,20 +1,18 @@
 
 package api
 
-type NewChainRequest struct {
-  TaskParams TaskParams `json:"task_params"`
+type NewProtocolRequest struct {
   LibraryInterface string `json:"library_interface"`
   LibraryImplementation string `json:"library_implementation"`
 }
-type NewChainResponse struct {
+type NewProtocolResponse struct {
   Hash string `json:"hash"`
 }
 
-func (s *Server) NewChain(params TaskParams, intf string, impl string) (string, error) {
+func (s *Server) NewProtocol(intf string, impl string) (string, error) {
   var err error
-  var res NewChainResponse
-  err = s.PlainRequest("/chains", NewChainRequest{
-    TaskParams: params,
+  var res NewProtocolResponse
+  err = s.PlainRequest("/protocols", NewProtocolRequest{
     LibraryInterface: intf,
     LibraryImplementation: impl,
   }, &res)

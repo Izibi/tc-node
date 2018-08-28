@@ -25,9 +25,8 @@ type Config struct {
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
   WatchGameUrl string `yaml:"watch_game_url"`
-  TaskParams api.TaskParams `yaml:"task_params"`
-  GameParams api.GameParams `yaml:"game_params"`
-  Players []PlayerConfig `yaml:"players"`
+  NewGameParams api.GameParams `yaml:"new_game_params"`
+  Players []PlayerConfig `yaml:"my_players"`
 }
 
 type PlayerConfig struct {
@@ -109,14 +108,14 @@ func main() {
     os.Exit(1)
   }
   switch cmd := flag.Arg(0); cmd {
-  case "start":
-    err = startGame()
-  case "join":
+  case "new":
+    err = startGame() /* XXX rename */
+  case "join": /* TODO: and run */
     err = joinGame(flag.Arg(1))
-  case "send":
-    err = sendCommands()
   case "next":
     err = endOfRound()
+  case "run":
+    /* signal server to start timed rounds */
   default:
     err = errors.New("unknown command")
   }
@@ -130,28 +129,23 @@ func startGame() error {
   var err error
   var intf string
   var impl string
-  fmt.Fprintf(os.Stderr, "Loading library\n")
+  fmt.Fprintf(os.Stderr, "Loading protocol\n")
   intf, impl, err = LoadLibrary()
-  if err != nil {
-    return errors.New("library source code is missing")
-  }
-  fmt.Fprintf(os.Stderr, "Creating chain\n")
-  var chainHash string
-  chainHash, err = remote.NewChain(config.TaskParams, intf, impl)
-  if err != nil {
-    return errors.New("error creating chain")
-  }
-  config.GameParams.FirstBlock = chainHash
-  fmt.Fprintf(os.Stderr, "Creating game\n")
-  game, err = remote.NewGame(config.GameParams);
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "Saving game\n")
+  fmt.Fprintf(os.Stderr, "Sending protocol\n")
+  var protoHash string
+  protoHash, err = remote.NewProtocol(intf, impl)
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Creating game\n")
+  game, err = remote.NewGame(config.NewGameParams, protoHash);
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Saving game state\n")
   err = SaveGame(game)
   fmt.Fprintf(os.Stderr, "Clearing store\n")
   err = store.Clear()
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "Retrieving chain\n")
-  _, err = store.Get(chainHash)
+  fmt.Fprintf(os.Stderr, "Retrieving blockchain\n")
+  _, err = store.Get(protoHash)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
   return nil
@@ -159,11 +153,16 @@ func startGame() error {
 
 func joinGame(gameKey string) error {
   var err error
+  fmt.Fprintf(os.Stderr, "Retrieving game state\n")
   game, err = remote.ShowGame(gameKey)
   if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Saving game state\n")
   err = SaveGame(game)
   if err != nil { return err }
-  store.Clear()
+  fmt.Fprintf(os.Stderr, "Clearing store\n")
+  err = store.Clear()
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Retrieving blockchain\n")
   err = store.GetChain(game.CurrentBlock)
   if err != nil { return err }
   return nil
@@ -184,15 +183,15 @@ func runCommand(shellCmd string, env CommandEnv) (string, error) {
   return out.String(), nil
 }
 
-func sendCommands() (err error) {
-
+func endOfRound() (err error) {
+  /* Load game */
   game, err = LoadGame()
   if err != nil { return }
-
+  /* Load key pair */
   var teamKeyPair *keypair.KeyPair
   teamKeyPair, err = keypair.Read("team.json")
   if err != nil { return }
-
+  /* Send commands */
   for _, player := range config.Players {
     var commands string
     commands, err = runCommand(player.CommandLine, CommandEnv{
@@ -205,22 +204,16 @@ func sendCommands() (err error) {
       commands)
     if err != nil { return }
   }
-
-  return
-}
-
-func endOfRound() (err error) {
-  game, err = LoadGame()
-  if err != nil { return }
-  var teamKeyPair *keypair.KeyPair
-  teamKeyPair, err = keypair.Read("team.json")
-  if err != nil { return }
+  /* End round.  TODO: wait for end of round. */
   _, err = remote.EndRound(game.Key, game.CurrentRound, teamKeyPair)
   if err != nil { return }
+  /* Retrieve updated game. */
   game, err = remote.ShowGame(game.Key)
   if err != nil { return }
+  /* Retrieve current block. */
   _, err = store.Get(game.CurrentBlock)
   if err != nil { return }
+  /* Save game state. */
   err = SaveGame(game)
   if err != nil { return }
   return

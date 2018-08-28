@@ -5,6 +5,11 @@ import (
   "tezos-contests.izibi.com/tezos-play/keypair"
 )
 
+type NewGameRequest struct {
+  Params GameParams `json:"params"`
+  FirstBlock string `json:"first_block"`
+}
+
 type InputCommandsRequest struct {
   GameKey string `json:"game_key"`
   ValidForRound uint32 `json:"valid_for_round"`
@@ -22,9 +27,12 @@ type EndRoundResponse struct {
   NewBlock string `json:"new_block"`
 }
 
-func (s *Server) NewGame(gameParams GameParams) (res *GameState, err error) {
+func (s *Server) NewGame(gameParams GameParams, firstBlock string) (res *GameState, err error) {
   res = &GameState{}
-  err = s.PlainRequest("/games", gameParams, res)
+  err = s.PlainRequest("/games", NewGameRequest{
+    Params: gameParams,
+    FirstBlock: firstBlock,
+  }, res)
   return
 }
 
