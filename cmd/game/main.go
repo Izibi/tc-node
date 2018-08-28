@@ -63,12 +63,12 @@ func SaveGame(game *api.GameState) (err error) {
   return
 }
 
-func LoadLibrary() (intf string, impl string, err error) {
+func LoadProtocol() (intf string, impl string, err error) {
   var b []byte
-  b, err = ioutil.ReadFile("library.mli")
+  b, err = ioutil.ReadFile("protocol.mli")
   if err != nil { return "", "", err }
   intf = string(b)
-  b, err = ioutil.ReadFile("library.ml")
+  b, err = ioutil.ReadFile("protocol.ml")
   if err != nil { return "", "", err }
   impl = string(b)
   return
@@ -144,7 +144,7 @@ func startGame() error {
   var intf string
   var impl string
   fmt.Fprintf(os.Stderr, "Loading protocol\n")
-  intf, impl, err = LoadLibrary()
+  intf, impl, err = LoadProtocol()
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Sending protocol\n")
   var protoHash string
