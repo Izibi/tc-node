@@ -2,7 +2,7 @@
 package api
 
 import (
-  "tezos-contests.izibi.com/tezos-play/keypair"
+  "tezos-contests.izibi.com/task1-game/keypair"
 )
 
 type NewGameRequest struct {

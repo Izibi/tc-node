@@ -9,8 +9,8 @@ import (
   "io"
   "net/http"
   "os"
-  "tezos-contests.izibi.com/tezos-play/keypair"
-  "tezos-contests.izibi.com/tezos-play/message"
+  "tezos-contests.izibi.com/task1-game/keypair"
+  "tezos-contests.izibi.com/task1-game/message"
 )
 
 type Server struct {

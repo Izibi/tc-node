@@ -8,7 +8,7 @@ import (
   "crypto/hmac"
   "crypto/sha512"
   "golang.org/x/crypto/ed25519"
-  "tezos-contests.izibi.com/tezos-play/keypair"
+  "tezos-contests.izibi.com/task1-game/keypair"
 )
 
 const GAME_API_KEY = "z4fRNQW1xJidCuGO0l0G4eR97bkwPSdTbXSyMzeCRes="
