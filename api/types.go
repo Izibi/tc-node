@@ -7,7 +7,8 @@
 
 package api
 
-var Version string = "3.0.0"
+/* Server version range with which this version of the tool is compatible. */
+var Version string = "^3.0.0"
 
 /* This is specific to task1. */
 type GameParams struct {
