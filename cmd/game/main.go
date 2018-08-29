@@ -115,6 +115,8 @@ func main() {
   switch cmd := flag.Arg(0); cmd {
   case "keypair":
     err = generateKeypair()
+  case "time":
+    err = getServerTime()
   case "new":
     err = startGame() /* XXX rename */
   case "join": /* TODO: and run */
@@ -137,6 +139,15 @@ func generateKeypair() (err error) {
   kp, err = keypair.New()
   if err != nil { return err}
   err = kp.Write(config.KeypairFilename)
+  return
+}
+
+func getServerTime() (err error) {
+  var time string
+  time, err = remote.GetTime()
+  if err != nil { return }
+  fmt.Fprintf(os.Stderr, "Server time: %s\n", time)
+  /* TODO print current time, delta, complain if >0.1s difference */
   return
 }
 

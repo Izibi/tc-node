@@ -1,11 +1,13 @@
 
 /*
 
-  See https://app.swaggerhub.com/apis/epixode1/BYhZzCNUCkA/2.1.0
+  See https://app.swaggerhub.com/apis/epixode1/BYhZzCNUCkA/3.0.0
 
 */
 
 package api
+
+var Version string = "3.0.0"
 
 /* This is specific to task1. */
 type GameParams struct {
