@@ -1,13 +1,12 @@
 base_url: http://127.0.0.1:8100/task1
 api_key: z4fRNQW1xJidCuGO0l0G4eR97bkwPSdTbXSyMzeCRes=
 store_dir: store
-task_params:
+new_game_params:
   nb_players: 1
   map_side: 11
-game_params:
   nb_rounds: 10
   round_duration: 60
   cycles_per_round: 2
-players:
+my_players:
   - number: 1
-    command_line: "./play"
+    command_line: "./team1.sh"
