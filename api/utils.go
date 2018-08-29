@@ -15,11 +15,13 @@ import (
 
 type Server struct {
   Base string
+  ApiKey string
 }
 
-func New (base string) (*Server) {
+func New (base string, apiKey string) (*Server) {
   return &Server{
     Base: base,
+    ApiKey: apiKey,
   }
 }
 
@@ -66,7 +68,7 @@ func (s *Server) PlainRequest(path string, body interface{}, result interface{})
 
 func (s *Server) SignedRequest(keyPair *keypair.KeyPair, path string, msg interface{}, result interface{}) (err error) {
   var b []byte
-  b, err = message.Sign(keyPair, msg)
+  b, err = message.Sign(keyPair, s.ApiKey, msg)
   if err != nil { return }
   err = s.postRequest(path, bytes.NewReader(b), result)
   return

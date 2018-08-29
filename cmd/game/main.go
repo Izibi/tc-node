@@ -24,6 +24,7 @@ type Config struct {
   ApiBaseUrl string `yaml:"api_base"`
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
+  ApiKey string `yaml:"api_key"`
   KeypairFilename string `yaml:"keypair"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams api.GameParams `yaml:"new_game_params"`
@@ -98,7 +99,7 @@ func Configure() error {
   }
   config.StoreCacheDir, err = filepath.Abs(config.StoreCacheDir)
   if err != nil { return err }
-  remote = api.New(config.ApiBaseUrl)
+  remote = api.New(config.ApiBaseUrl, config.ApiKey)
   store = block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
   return nil
 }

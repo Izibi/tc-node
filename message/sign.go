@@ -11,9 +11,7 @@ import (
   "tezos-contests.izibi.com/task1-game/keypair"
 )
 
-const GAME_API_KEY = "z4fRNQW1xJidCuGO0l0G4eR97bkwPSdTbXSyMzeCRes="
-
-func Sign(keys *keypair.KeyPair, obj interface{}) ([]byte, error) {
+func Sign(keys *keypair.KeyPair, apiKey string, obj interface{}) ([]byte, error) {
   var err error
   var res []byte
   plain := new(bytes.Buffer)
@@ -28,7 +26,7 @@ func Sign(keys *keypair.KeyPair, obj interface{}) ([]byte, error) {
   if err != nil {
     return res, err
   }
-  gameApiKey, _ :=  base64.StdEncoding.DecodeString(GAME_API_KEY)
+  gameApiKey, _ :=  base64.StdEncoding.DecodeString(apiKey)
   hasher := hmac.New(sha512.New, []byte(gameApiKey))
   hasher.Write([]byte(encoded))
   hash := hasher.Sum(nil)[:32]
