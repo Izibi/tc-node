@@ -19,7 +19,7 @@ import (
 type Block struct {
   Type string `json:"type"`
   Parent string `json:"parent"`
-  Sequence uint32 `json:"sequence"`
+  Round uint32 `json:"round"`
 }
 
 type Store struct {
@@ -60,7 +60,7 @@ func (s *Store) Get(hash string) (res *Block, err error) {
   err = json.Unmarshal(b, block)
   if err != nil { return }
   s.hashMap[hash] = block
-  seqDir := filepath.Join(s.BlockDir, strconv.FormatUint(uint64(block.Sequence), 10))
+  seqDir := filepath.Join(s.BlockDir, strconv.FormatUint(uint64(block.Round), 10))
   err = os.RemoveAll(seqDir)
   if err != nil { return }
   os.Rename(blockDir, seqDir)

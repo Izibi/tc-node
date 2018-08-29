@@ -6,32 +6,34 @@ import (
 )
 
 type NewGameRequest struct {
-  Params GameParams `json:"params"`
+  GameParams GameParams `json:"game_params"`
   FirstBlock string `json:"first_block"`
+  TaskParams interface{} `json:"task_params"`
 }
 
 type InputCommandsRequest struct {
   GameKey string `json:"game_key"`
-  ValidForRound uint32 `json:"valid_for_round"`
   TeamKey string `json:"team_key"`
   TeamPlayer uint32 `json:"team_player"`
+  CurrentBlock string `json:"current_block"`
   Commands string `json:"commands"`
 }
 
 type EndRoundRequest struct {
-  TeamKey string `json:"team_key"`
   GameKey string `json:"game_key"`
-  Round uint32 `json:"round"`
+  TeamKey string `json:"team_key"`
+  CurrentBlock string `json:"current_block"`
 }
 type EndRoundResponse struct {
   NewBlock string `json:"new_block"`
 }
 
-func (s *Server) NewGame(gameParams GameParams, firstBlock string) (res *GameState, err error) {
+func (s *Server) NewGame(gameParams GameParams, firstBlock string, taskParams map[string]interface{}) (res *GameState, err error) {
   res = &GameState{}
   err = s.PlainRequest("/games", NewGameRequest{
-    Params: gameParams,
+    GameParams: gameParams,
     FirstBlock: firstBlock,
+    TaskParams: taskParams,
   }, res)
   return
 }
@@ -43,23 +45,23 @@ func (s *Server) ShowGame(gameKey string) (res *GameState, err error) {
   return res, nil
 }
 
-func (s *Server) InputCommands (gameKey string, round uint32, teamKeyPair *keypair.KeyPair, teamPlayer uint32, commands string) error {
+func (s *Server) InputCommands (gameKey string, currentBlock string, teamKeyPair *keypair.KeyPair, teamPlayer uint32, commands string) error {
   return s.SignedRequest(teamKeyPair, "/games/commands", InputCommandsRequest{
     GameKey: gameKey,
-    ValidForRound: round,
     TeamKey: teamKeyPair.Public,
     TeamPlayer: teamPlayer,
+    CurrentBlock: currentBlock,
     Commands: commands,
   }, nil)
 }
 
-func (s *Server) EndRound (gameKey string, round uint32, teamKeyPair *keypair.KeyPair) (string, error) {
+func (s *Server) EndRound (gameKey string, currentBlock string, teamKeyPair *keypair.KeyPair) (string, error) {
   var err error
   var res EndRoundResponse
   err = s.SignedRequest(teamKeyPair, "/games/end_round", EndRoundRequest{
-    TeamKey: teamKeyPair.Public,
     GameKey: gameKey,
-    Round: round,
+    TeamKey: teamKeyPair.Public,
+    CurrentBlock: currentBlock,
   }, &res)
   if err != nil { return "", err }
   return res.NewBlock, nil

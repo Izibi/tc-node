@@ -38,7 +38,7 @@ type GameState struct {
 type AnyBlock struct {
   Type string `json:"type"`
   Parent string `json:"parent"`
-  Sequence uint32 `json:"sequence"`
+  Round uint32 `json:"round"`
 }
 
 type ProtocolBlock struct {

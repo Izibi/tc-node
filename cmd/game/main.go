@@ -28,6 +28,7 @@ type Config struct {
   KeypairFilename string `yaml:"keypair"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams api.GameParams `yaml:"new_game_params"`
+  NewTaskParams map[string]interface{} `yaml:"new_task_params"`
   Players []PlayerConfig `yaml:"my_players"`
 }
 
@@ -163,7 +164,7 @@ func startGame() error {
   protoHash, err = remote.NewProtocol(intf, impl)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Creating game\n")
-  game, err = remote.NewGame(config.NewGameParams, protoHash);
+  game, err = remote.NewGame(config.NewGameParams, protoHash, config.NewTaskParams);
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Saving game state\n")
   err = SaveGame(game)
@@ -226,12 +227,12 @@ func endOfRound() (err error) {
     })
     if err != nil { return }
     err = remote.InputCommands(
-      game.Key, game.CurrentRound, teamKeyPair, uint32(player.Number),
+      game.Key, game.CurrentBlock, teamKeyPair, uint32(player.Number),
       commands)
     if err != nil { return }
   }
   /* End round.  TODO: wait for end of round. */
-  _, err = remote.EndRound(game.Key, game.CurrentRound, teamKeyPair)
+  _, err = remote.EndRound(game.Key, game.CurrentBlock, teamKeyPair)
   if err != nil { return }
   /* Retrieve updated game. */
   game, err = remote.ShowGame(game.Key)
