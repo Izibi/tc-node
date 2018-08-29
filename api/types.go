@@ -1,6 +1,13 @@
 
+/*
+
+  See https://app.swaggerhub.com/apis/epixode1/BYhZzCNUCkA/2.1.0
+
+*/
+
 package api
 
+/* This is specific to task1. */
 type GameParams struct {
   NbPlayers uint32 `json:"nb_players" yaml:"nb_players"`
   MapSide uint32 `json:"map_side" yaml:"map_side"`
