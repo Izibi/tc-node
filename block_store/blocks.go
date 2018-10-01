@@ -5,7 +5,6 @@ import (
   "archive/zip"
   "bytes"
   "encoding/json"
-  "errors"
   "fmt"
   "io"
   "io/ioutil"
@@ -14,6 +13,7 @@ import (
   "path/filepath"
   "strconv"
   "strings"
+  "github.com/go-errors/errors"
 )
 
 type Block struct {
@@ -47,35 +47,36 @@ func (s *Store) Clear() (err error) {
 func (s *Store) Get(hash string) (res *Block, err error) {
   res = s.hashMap[hash]
   err = nil
-  if res != nil { return }
   blockDir := filepath.Join(s.BlockDir, hash)
   err = os.MkdirAll(blockDir, os.ModePerm)
-  if err != nil { return }
+  if err != nil { err = errors.Errorf("failed to create '%s'", blockDir); return }
   err = s.fetch(hash, blockDir)
   if err != nil { return }
   var b []byte
-  b, err = ioutil.ReadFile(filepath.Join(blockDir, "block.json"))
-  if err != nil { return }
+  blockPath := filepath.Join(blockDir, "block.json")
+  b, err = ioutil.ReadFile(blockPath)
+  if err != nil { err = errors.Errorf("failed to read '%s'", blockPath); return }
   block := new(Block)
   err = json.Unmarshal(b, block)
-  if err != nil { return }
+  if err != nil { err = errors.Errorf("bad block '%s': %s", hash, err); return }
   s.hashMap[hash] = block
   seqDir := filepath.Join(s.BlockDir, strconv.FormatUint(uint64(block.Round), 10))
   err = os.RemoveAll(seqDir)
-  if err != nil { return }
+  if err != nil { err = errors.Errorf("failed to remove directory '%s'", seqDir); return }
   os.Rename(blockDir, seqDir)
-  if err != nil { return }
+  if err != nil { err = errors.Errorf("failed to move block from '%s' to '%s'", blockDir, seqDir); return }
   res = block
   return
 }
 
-func (s *Store) GetChain(hash string) (err error) {
+func (s *Store) GetChain(firstBlock string, lastBlock string) (err error) {
   var block *Block
-  for true {
+  hash := lastBlock
+  for hash != "" {
     block, err = s.Get(hash)
     if err != nil { return err }
+    if firstBlock == hash { break }
     hash = block.Parent
-    if hash == "" { break }
   }
   return
 }
@@ -85,43 +86,49 @@ func (s *Store) fetch(hash string, dest string) (err error) {
   destPrefix := filepath.Clean(dest) + string(os.PathSeparator)
 
   var resp *http.Response
-  resp, err = http.Get(s.BaseUrl + "/" + hash + ".zip")
-  if err != nil { return }
+  zipUrl := fmt.Sprintf("%s/%s/zip", s.BaseUrl, hash)
+  resp, err = http.Get(zipUrl)
+  if err != nil {
+    err = errors.Errorf("failed to GET %s: %s", zipUrl, err)
+    return
+  }
   if resp.StatusCode != 200 {
-    err = errors.New(resp.Status)
+    err = errors.Errorf("failed to GET %s: %s", zipUrl, resp.Status)
     return
   }
 
   bs, err := ioutil.ReadAll(resp.Body)
-  if err != nil { return }
+  if err != nil { err = errors.Wrap(err, 0); return }
   r, err := zip.NewReader(bytes.NewReader(bs), int64(len(bs)))
-  if err != nil { return }
+  if err != nil { err = errors.Wrap(err, 0); return }
 
   for _, f := range r.File {
     fpath := filepath.Join(dest, f.Name)
     if !strings.HasPrefix(fpath, destPrefix) {
-      err = fmt.Errorf("illegal file path %s", fpath)
+      err = errors.Errorf("illegal file path %s", fpath)
       return
     }
     if f.FileInfo().IsDir() {
       os.MkdirAll(fpath, os.ModePerm)
     } else {
       err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm)
-      if err != nil { return }
+      if err != nil { err = errors.Wrap(err, 0); return }
       var outFile *os.File
       outFile, err = os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-      if err != nil { return }
+      if err != nil { err = errors.Wrap(err, 0); return }
       var inFile io.ReadCloser
       inFile, err = f.Open()
-      if err != nil { outFile.Close(); return }
+      if err != nil {
+        outFile.Close()
+        err = errors.Wrap(err, 0)
+        return
+      }
       _, err = io.Copy(outFile, inFile)
       outFile.Close()
       inFile.Close();
-      if err != nil { return }
+      if err != nil { err = errors.Wrap(err, 0); return }
     }
   }
-
-  /* Load sequence from block.json */
 
   return
 }

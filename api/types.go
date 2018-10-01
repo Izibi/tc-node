@@ -28,11 +28,13 @@ type PlayerInfos struct {
 
 type GameState struct {
   Key string `json:"key"`
-  Player []PlayerInfos `json:"players"`
-  GameParams GameParams `json:"game_params"`
+  CreatedAt string `json:"createdAt"`
+  UpdatedAt string `json:"updatedAt"`
+  FirstBlock string `json:"firstBlock"`
+  LastBlock string `json:"lastBlock"`
+  StartedAt *string `json:"startedAt"`
+  RoundEndsAt *string `json:"roundEndsAt"`
   CurrentRound uint32 `json:"current_round"`
-  CurrentBlock string `json:"current_block"`
-  EndOfRound string `json:"end_of_round"` /* datetime */
 }
 
 type AnyBlock struct {

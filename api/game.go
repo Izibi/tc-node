@@ -5,12 +5,6 @@ import (
   "tezos-contests.izibi.com/game/keypair"
 )
 
-type NewGameRequest struct {
-  GameParams GameParams `json:"game_params"`
-  FirstBlock string `json:"first_block"`
-  TaskParams interface{} `json:"task_params"`
-}
-
 type InputCommandsRequest struct {
   GameKey string `json:"game_key"`
   TeamKey string `json:"team_key"`
@@ -28,19 +22,22 @@ type EndRoundResponse struct {
   NewBlock string `json:"new_block"`
 }
 
-func (s *Server) NewGame(firstBlock string, gameParams GameParams, taskParams map[string]interface{}) (res *GameState, err error) {
-  res = &GameState{}
-  err = s.PlainRequest("/games", NewGameRequest{
+func (s *Server) NewGame(firstBlock string) (*GameState, error) {
+  type Request struct {
+    FirstBlock string `json:"first_block"`
+  }
+  req := Request{
     FirstBlock: firstBlock,
-    GameParams: gameParams,
-    TaskParams: taskParams,
-  }, res)
-  return
+  }
+  res := GameState{}
+  err := s.PlainRequest("/Games", &req, &res)
+  if err != nil { return nil, err }
+  return &res, nil
 }
 
 func (s *Server) ShowGame(gameKey string) (res *GameState, err error) {
   res = &GameState{}
-  err = s.GetRequest("/games/"+gameKey, res)
+  err = s.GetRequest("/Games/"+gameKey, res)
   if err != nil { return nil, err }
   return res, nil
 }

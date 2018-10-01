@@ -28,8 +28,8 @@ type Config struct {
   Task string `yaml:"task"`
   KeypairFilename string `yaml:"keypair"`
   WatchGameUrl string `yaml:"watch_game_url"`
-  NewGameParams api.GameParams `yaml:"new_game_params"`
   NewTaskParams map[string]interface{} `yaml:"new_task_params"`
+  NewGameParams api.GameParams `yaml:"new_game_params"`
   Players []PlayerConfig `yaml:"my_players"`
 }
 
@@ -88,7 +88,7 @@ func Configure() error {
     config.ApiBaseUrl = config.BaseUrl + "/backend"
   }
   if config.StoreBaseUrl == "" {
-    config.StoreBaseUrl = config.BaseUrl + "/store"
+    config.StoreBaseUrl = config.BaseUrl + "/backend/Blocks"
   }
   if config.WatchGameUrl == "" {
     config.WatchGameUrl = config.BaseUrl + "/games"
@@ -161,20 +161,21 @@ func startGame() error {
   intf, impl, err = LoadProtocol()
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Sending protocol\n")
-  var protoHash string
-  protoHash, err = remote.NewProtocol(config.Task, intf, impl)
+  protoHash, err := remote.AddProtocolBlock(config.Task, intf, impl)
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "Protocol: %s\n", protoHash)
+  fmt.Fprintf(os.Stderr, "Performing task setup\n")
+  setupHash, err := remote.AddSetupBlock(protoHash, config.NewTaskParams)
+  if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Creating game\n")
-  game, err = remote.NewGame(protoHash, config.NewGameParams, config.NewTaskParams);
+  game, err = remote.NewGame(setupHash);
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Saving game state\n")
   err = SaveGame(game)
   fmt.Fprintf(os.Stderr, "Clearing store\n")
   err = store.Clear()
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "Retrieving blockchain\n")
-  err = store.GetChain(game.CurrentBlock)
+  fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
+  err = store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
   return nil
@@ -191,9 +192,10 @@ func joinGame(gameKey string) error {
   fmt.Fprintf(os.Stderr, "Clearing store\n")
   err = store.Clear()
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "Retrieving blockchain\n")
-  err = store.GetChain(game.CurrentBlock)
+  fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
+  err = store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
   return nil
 }
 
@@ -229,18 +231,18 @@ func endOfRound() (err error) {
     })
     if err != nil { return }
     err = remote.InputCommands(
-      game.Key, game.CurrentBlock, teamKeyPair, uint32(player.Number),
+      game.Key, game.LastBlock, teamKeyPair, uint32(player.Number),
       commands)
     if err != nil { return }
   }
   /* End round.  TODO: wait for end of round. */
-  _, err = remote.EndRound(game.Key, game.CurrentBlock, teamKeyPair)
+  _, err = remote.EndRound(game.Key, game.LastBlock, teamKeyPair)
   if err != nil { return }
   /* Retrieve updated game. */
   game, err = remote.ShowGame(game.Key)
   if err != nil { return }
   /* Retrieve current block. */
-  _, err = store.Get(game.CurrentBlock)
+  _, err = store.Get(game.LastBlock)
   if err != nil { return }
   /* Save game state. */
   err = SaveGame(game)
