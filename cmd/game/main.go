@@ -14,9 +14,9 @@ import (
   "strings"
 
   "gopkg.in/yaml.v2"
-  "tezos-contests.izibi.com/task1-game/api"
-  "tezos-contests.izibi.com/task1-game/keypair"
-  "tezos-contests.izibi.com/task1-game/block_store"
+  "tezos-contests.izibi.com/game/api"
+  "tezos-contests.izibi.com/game/keypair"
+  "tezos-contests.izibi.com/game/block_store"
 )
 
 type Config struct {

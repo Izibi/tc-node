@@ -8,7 +8,7 @@ import (
   "crypto/hmac"
   "crypto/sha512"
   "golang.org/x/crypto/ed25519"
-  "tezos-contests.izibi.com/task1-game/keypair"
+  "tezos-contests.izibi.com/game/keypair"
 )
 
 func Sign(keys *keypair.KeyPair, apiKey string, obj interface{}) ([]byte, error) {
