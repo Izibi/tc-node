@@ -28,11 +28,11 @@ type EndRoundResponse struct {
   NewBlock string `json:"new_block"`
 }
 
-func (s *Server) NewGame(gameParams GameParams, firstBlock string, taskParams map[string]interface{}) (res *GameState, err error) {
+func (s *Server) NewGame(firstBlock string, gameParams GameParams, taskParams map[string]interface{}) (res *GameState, err error) {
   res = &GameState{}
   err = s.PlainRequest("/games", NewGameRequest{
-    GameParams: gameParams,
     FirstBlock: firstBlock,
+    GameParams: gameParams,
     TaskParams: taskParams,
   }, res)
   return

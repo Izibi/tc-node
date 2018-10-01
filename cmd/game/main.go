@@ -25,6 +25,7 @@ type Config struct {
   StoreBaseUrl string `yaml:"store_base"`
   StoreCacheDir string `yaml:"store_dir"`
   ApiKey string `yaml:"api_key"`
+  Task string `yaml:"task"`
   KeypairFilename string `yaml:"keypair"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams api.GameParams `yaml:"new_game_params"`
@@ -84,7 +85,7 @@ func Configure() error {
   err = yaml.Unmarshal(configFile, &config)
   if err != nil { return err }
   if config.ApiBaseUrl == "" {
-    config.ApiBaseUrl = config.BaseUrl + "/api"
+    config.ApiBaseUrl = config.BaseUrl + "/backend"
   }
   if config.StoreBaseUrl == "" {
     config.StoreBaseUrl = config.BaseUrl + "/store"
@@ -161,10 +162,11 @@ func startGame() error {
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Sending protocol\n")
   var protoHash string
-  protoHash, err = remote.NewProtocol(intf, impl)
+  protoHash, err = remote.NewProtocol(config.Task, intf, impl)
   if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Protocol: %s\n", protoHash)
   fmt.Fprintf(os.Stderr, "Creating game\n")
-  game, err = remote.NewGame(config.NewGameParams, protoHash, config.NewTaskParams);
+  game, err = remote.NewGame(protoHash, config.NewGameParams, config.NewTaskParams);
   if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Saving game state\n")
   err = SaveGame(game)
