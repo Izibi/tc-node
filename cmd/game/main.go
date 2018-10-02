@@ -14,10 +14,14 @@ import (
   "strings"
 
   "gopkg.in/yaml.v2"
+  "github.com/fatih/color"
   "tezos-contests.izibi.com/game/api"
-  "tezos-contests.izibi.com/game/keypair"
   "tezos-contests.izibi.com/game/block_store"
+  "tezos-contests.izibi.com/backend/signing"
 )
+
+var success = color.New(color.Bold, color.FgGreen)
+var danger = color.New(color.Bold, color.FgRed)
 
 type Config struct {
   BaseUrl string `yaml:"base_url"`
@@ -26,7 +30,7 @@ type Config struct {
   StoreCacheDir string `yaml:"store_dir"`
   ApiKey string `yaml:"api_key"`
   Task string `yaml:"task"`
-  KeypairFilename string `yaml:"keypair"`
+  KeypairFilename string `yaml:"signing"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewTaskParams map[string]interface{} `yaml:"new_task_params"`
   NewGameParams api.GameParams `yaml:"new_game_params"`
@@ -101,7 +105,10 @@ func Configure() error {
   }
   config.StoreCacheDir, err = filepath.Abs(config.StoreCacheDir)
   if err != nil { return err }
-  remote = api.New(config.ApiBaseUrl, config.ApiKey)
+  /* Load key pair */
+  var teamKeyPair *signing.KeyPair
+  teamKeyPair, _ = loadKeyPair(config.KeypairFilename)
+  remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store = block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
   return nil
 }
@@ -123,6 +130,8 @@ func main() {
     err = startGame() /* XXX rename */
   case "join": /* TODO: and run */
     err = joinGame(flag.Arg(1))
+  case "send":
+    err = sendCommands()
   case "next":
     err = endOfRound()
   case "run":
@@ -131,17 +140,32 @@ func main() {
     err = errors.New("unknown command")
   }
   if err != nil {
-    fmt.Fprintf(os.Stderr, "error: %v\n", err)
+    danger.Fprintln(os.Stderr, "Command failed.")
+    fmt.Println(err)
     os.Exit(1)
   }
 }
 
 func generateKeypair() (err error) {
-  var kp *keypair.KeyPair
-  kp, err = keypair.New()
-  if err != nil { return err}
-  err = kp.Write(config.KeypairFilename)
-  return
+  var kp *signing.KeyPair
+  kp, err = signing.NewKeyPair()
+  if err != nil { return err }
+  file, err := os.OpenFile(config.KeypairFilename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+  if err != nil { return err }
+  defer file.Close()
+  err = kp.Write(file)
+  if err != nil { return err }
+  return nil
+}
+
+func loadKeyPair (filename string) (*signing.KeyPair, error) {
+  var err error
+  f, err := os.Open(filename)
+  if err != nil {
+    return nil, err
+  }
+  defer f.Close()
+  return signing.ReadKeyPair(f)
 }
 
 func getServerTime() (err error) {
@@ -157,6 +181,7 @@ func startGame() error {
   var err error
   var intf string
   var impl string
+  if err != nil { return err }
   fmt.Fprintf(os.Stderr, "Loading protocol\n")
   intf, impl, err = LoadProtocol()
   if err != nil { return err }
@@ -177,7 +202,8 @@ func startGame() error {
   fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
   err = store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
+  fmt.Printf("Game key: ")
+  success.Println(game.Key)
   return nil
 }
 
@@ -195,7 +221,7 @@ func joinGame(gameKey string) error {
   fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
   err = store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { return err }
-  fmt.Fprintf(os.Stderr, "open %s/%s\n", config.WatchGameUrl, game.Key)
+  success.Println("Success")
   return nil
 }
 
@@ -214,14 +240,13 @@ func runCommand(shellCmd string, env CommandEnv) (string, error) {
   return out.String(), nil
 }
 
-func endOfRound() (err error) {
+
+func sendCommands() (err error) {
   /* Load game */
-  game, err = LoadGame()
-  if err != nil { return }
-  /* Load key pair */
-  var teamKeyPair *keypair.KeyPair
-  teamKeyPair, err = keypair.Read(config.KeypairFilename)
-  if err != nil { return }
+  if game == nil {
+    game, err = LoadGame()
+    if err != nil { return }
+  }
   /* Send commands */
   for _, player := range config.Players {
     var commands string
@@ -231,13 +256,20 @@ func endOfRound() (err error) {
     })
     if err != nil { return }
     err = remote.InputCommands(
-      game.Key, game.LastBlock, teamKeyPair, uint32(player.Number),
+      game.Key, game.LastBlock, uint32(player.Number),
       commands)
     if err != nil { return }
   }
-  /* End round.  TODO: wait for end of round. */
-  _, err = remote.EndRound(game.Key, game.LastBlock, teamKeyPair)
+  return
+}
+
+func endOfRound() (err error) {
+  err = sendCommands()
   if err != nil { return }
+  /* Close round. */
+  _, err = remote.CloseRound(game.Key, game.LastBlock)
+  if err != nil { return }
+  /* TODO: wait for next block */
   /* Retrieve updated game. */
   game, err = remote.ShowGame(game.Key)
   if err != nil { return }

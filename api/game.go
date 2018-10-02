@@ -2,35 +2,19 @@
 package api
 
 import (
-  "tezos-contests.izibi.com/game/keypair"
+  "fmt"
 )
-
-type InputCommandsRequest struct {
-  GameKey string `json:"game_key"`
-  TeamKey string `json:"team_key"`
-  TeamPlayer uint32 `json:"team_player"`
-  CurrentBlock string `json:"current_block"`
-  Commands string `json:"commands"`
-}
-
-type EndRoundRequest struct {
-  GameKey string `json:"game_key"`
-  TeamKey string `json:"team_key"`
-  CurrentBlock string `json:"current_block"`
-}
-type EndRoundResponse struct {
-  NewBlock string `json:"new_block"`
-}
 
 func (s *Server) NewGame(firstBlock string) (*GameState, error) {
   type Request struct {
+    Author string `json:"author"`
     FirstBlock string `json:"first_block"`
   }
-  req := Request{
-    FirstBlock: firstBlock,
-  }
   res := GameState{}
-  err := s.PlainRequest("/Games", &req, &res)
+  err := s.SignedRequest("/Games", Request{
+    Author: s.Author(),
+    FirstBlock: firstBlock,
+  }, &res)
   if err != nil { return nil, err }
   return &res, nil
 }
@@ -42,22 +26,35 @@ func (s *Server) ShowGame(gameKey string) (res *GameState, err error) {
   return res, nil
 }
 
-func (s *Server) InputCommands (gameKey string, currentBlock string, teamKeyPair *keypair.KeyPair, teamPlayer uint32, commands string) error {
-  return s.SignedRequest(teamKeyPair, "/games/commands", InputCommandsRequest{
-    GameKey: gameKey,
-    TeamKey: teamKeyPair.Public,
-    TeamPlayer: teamPlayer,
+func (s *Server) InputCommands(gameKey string, currentBlock string, teamPlayer uint32, commands string) error {
+  type Request struct {
+    Author string `json:"author"`
+    CurrentBlock string `json:"current_block"`
+    Player uint32 `json:"player"`
+    Commands string `json:"commands"`
+  }
+  reqPath := fmt.Sprintf("/Games/%s/Commands", gameKey)
+  return s.SignedRequest(reqPath, Request{
+    Author: s.Author(),
+    Player: teamPlayer,
     CurrentBlock: currentBlock,
     Commands: commands,
   }, nil)
 }
 
-func (s *Server) EndRound (gameKey string, currentBlock string, teamKeyPair *keypair.KeyPair) (string, error) {
+func (s *Server) CloseRound(gameKey string, currentBlock string) (string, error) {
+  type Request struct {
+    Author string `json:"author"`
+    CurrentBlock string `json:"current_block"`
+  }
+  type Response struct {
+    NewBlock string `json:"new_block"`
+  }
   var err error
-  var res EndRoundResponse
-  err = s.SignedRequest(teamKeyPair, "/games/end_round", EndRoundRequest{
-    GameKey: gameKey,
-    TeamKey: teamKeyPair.Public,
+  var res Response
+  reqPath := fmt.Sprintf("/Games/%s/CloseRound", gameKey)
+  err = s.SignedRequest(reqPath, Request{
+    Author: s.Author(),
     CurrentBlock: currentBlock,
   }, &res)
   if err != nil { return "", err }

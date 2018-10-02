@@ -4,46 +4,58 @@ package api
 import (
   "bytes"
   "encoding/json"
-  "errors"
+  "github.com/go-errors/errors"
   "fmt"
   "io"
   "net/http"
   "os"
-  "tezos-contests.izibi.com/game/keypair"
-  "tezos-contests.izibi.com/game/message"
+  "tezos-contests.izibi.com/backend/signing"
 )
 
 type Server struct {
   Base string
   ApiKey string
+  teamKeyPair *signing.KeyPair
   client *http.Client
 }
 
-func New (base string, apiKey string) (*Server) {
+type ServerResponse struct {
+  Result interface{} `json:"result"`
+  Error string `json:"error"`
+  Details string `json:"details"`
+}
+
+func New (base string, apiKey string, teamKeyPair *signing.KeyPair) (*Server) {
   return &Server{
     Base: base,
     ApiKey: apiKey,
+    teamKeyPair: teamKeyPair,
     client: new(http.Client),
   }
+}
+
+func (s *Server) Author() string {
+  return "@" + s.teamKeyPair.Public
 }
 
 func (s *Server) GetRequest(path string, result interface{}) (err error) {
   var req *http.Request
   req, err = http.NewRequest("GET", s.Base + path, nil)
-  if err != nil { return }
+  if err != nil { err = errors.Wrap(err, 0); return }
   req.Header.Add("X-API-Version", Version)
   var resp *http.Response
   resp, err = s.client.Do(req)
-  if err != nil { return }
+  if err != nil { err = errors.Wrap(err, 0); return }
   if resp.StatusCode < 200 || resp.StatusCode >= 299 {
     buf := new(bytes.Buffer)
     buf.ReadFrom(resp.Body)
     fmt.Fprintln(os.Stderr, buf.String())
-    err = errors.New(resp.Status)
-    return
+    return errors.New(resp.Status)
   }
-  if resp.StatusCode == 200 {
-    err = json.NewDecoder(resp.Body).Decode(&result)
+  sr := ServerResponse{result, "", ""}
+  err = json.NewDecoder(resp.Body).Decode(&sr)
+  if sr.Error != "" {
+    return errors.Errorf("API error: %s\n%s", sr.Error, sr.Details)
   }
   return
 }
@@ -66,16 +78,28 @@ func (s *Server) postRequest(path string, body io.Reader, result interface{}) (e
   return
 }
 
-func (s *Server) PlainRequest(path string, body interface{}, result interface{}) (err error) {
+func (s *Server) PlainRequest(path string, msg interface{}, result interface{}) error {
   b := new(bytes.Buffer)
-  json.NewEncoder(b).Encode(body)
+  err := json.NewEncoder(b).Encode(msg)
+  if err != nil { return err }
   return s.postRequest(path, b, result)
 }
 
-func (s *Server) SignedRequest(keyPair *keypair.KeyPair, path string, msg interface{}, result interface{}) (err error) {
-  var b []byte
-  b, err = message.Sign(keyPair, s.ApiKey, msg)
-  if err != nil { return }
-  err = s.postRequest(path, bytes.NewReader(b), result)
-  return
+func (s *Server) SignedRequest(path string, msg interface{}, result interface{}) error {
+  if s.teamKeyPair == nil {
+    return errors.Errorf("team keypair is missing")
+  }
+  b := new(bytes.Buffer)
+  err := json.NewEncoder(b).Encode(msg)
+  if err != nil { return errors.Errorf("malformed message in request: %s", err) }
+  bs, err := signing.Sign(s.teamKeyPair.Private, s.ApiKey, b.Bytes())
+  if err != nil { return errors.Errorf("failed to sign message: %s", err) }
+  resp := ServerResponse{result, "", ""}
+  err = s.postRequest(path, bytes.NewReader(bs), &resp)
+  if err != nil { return errors.Errorf("failed to contact API: %s", err) }
+  // TODO: print/return resp.Detail
+  if resp.Error != "" {
+    return errors.Errorf("API error: %s\n%s", resp.Error, resp.Details)
+  }
+  return nil
 }
