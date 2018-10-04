@@ -18,6 +18,7 @@ import (
   "tezos-contests.izibi.com/game/api"
   "tezos-contests.izibi.com/game/block_store"
   "tezos-contests.izibi.com/backend/signing"
+  "tezos-contests.izibi.com/game/sse"
 )
 
 var success = color.New(color.Bold, color.FgGreen)
@@ -130,6 +131,8 @@ func main() {
     err = startGame() /* XXX rename */
   case "join": /* TODO: and run */
     err = joinGame(flag.Arg(1))
+  case "sync":
+    err = syncGame()
   case "send":
     err = sendCommands()
   case "next":
@@ -222,6 +225,31 @@ func joinGame(gameKey string) error {
   err = store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { return err }
   success.Println("Success")
+  return nil
+}
+
+func syncGame() error {
+  game, err := LoadGame()
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Retrieving game state\n")
+  game, err = remote.ShowGame(game.Key)
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Saving game state\n")
+  err = SaveGame(game)
+  if err != nil { return err }
+  fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
+  err = store.GetChain(game.FirstBlock, game.LastBlock)
+  if err != nil { return err }
+  success.Println("Game is up to date.")
+  ch, err := sse.EventSink(remote.Base + "/Events") // TODO: remote.Events()
+  if err != nil { return err }
+  e := <-ch
+  if e.Type != "key" { return errors.New("expected key event") }
+  key := e.Data
+  err = remote.Subscribe(key, "games/" + game.Key)
+  if err != nil { return err }
+  e = <-ch
+  fmt.Println("event! %v\n", e)
   return nil
 }
 
