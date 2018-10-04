@@ -30,11 +30,13 @@ type GameState struct {
   Key string `json:"key"`
   CreatedAt string `json:"createdAt"`
   UpdatedAt string `json:"updatedAt"`
+  OwnerId string `json:"ownerId"`
   FirstBlock string `json:"firstBlock"`
   LastBlock string `json:"lastBlock"`
   StartedAt *string `json:"startedAt"`
   RoundEndsAt *string `json:"roundEndsAt"`
-  CurrentRound uint32 `json:"current_round"`
+  CurrentRound uint32 `json:"currentRound"`
+  IsLocked bool `json:"isLocked"`
 }
 
 type AnyBlock struct {
