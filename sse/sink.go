@@ -6,10 +6,13 @@
 package sse
 
 import (
+  //"fmt"
   "bufio"
   "bytes"
+  "github.com/go-errors/errors"
   "io"
   "net/http"
+  "time"
 )
 
 type Event struct {
@@ -18,20 +21,43 @@ type Event struct {
   Data string
 }
 
-func EventSink(uri string) (<-chan *Event, error) {
-  req, err := http.NewRequest("GET", uri, nil)
-  if err != nil { return nil, err }
-  req.Header.Set("Accept", "text/event-stream")
-  res, err := http.DefaultClient.Do(req)
-  if err != nil { return nil, err }
+type client struct {
+  uri string
+  retryDelay time.Duration
+  ch chan<- *Event
+}
+
+func Connect(uri string) (<-chan *Event, error) {
   ch := make(chan *Event)
-  go readEventSource(ch, res.Body)
+  c := &client{uri, 0, ch}
+  r, err := c.connect()
+  if err != nil { return nil, err }
+  go c.readEventSource(r)
   return ch, nil
 }
 
-func readEventSource(ch chan<- *Event, r io.ReadCloser) {
-  defer close(ch)
+func (c *client) connect() (io.ReadCloser, error) {
+  //fmt.Printf("SSE client connecting to %s\n", c.uri)
+  req, err := http.NewRequest("GET", c.uri, nil)
+  if err != nil {
+    //fmt.Printf("SSE client request failed: %v\n", err)
+    return nil, err
+  }
+  req.Header.Set("Accept", "text/event-stream")
+  res, err := http.DefaultClient.Do(req)
+  if err != nil {
+    //fmt.Printf("SSE client GET failed: %v\n", err)
+    return nil, err
+  }
+  if res.StatusCode != 200 {
+    return nil, errors.Errorf("SSE server error (%s)", res.Status)
+  }
+  return res.Body, nil
+}
+
+func (c *client) readEventSource(r io.ReadCloser) {
   defer r.Close()
+  defer close(c.ch)
   br := bufio.NewReader(r)
 
   var lastId string
@@ -41,8 +67,24 @@ func readEventSource(ch chan<- *Event, r io.ReadCloser) {
   for {
     line, err := br.ReadBytes('\n')
     if err != nil && err != io.EOF {
-      return
+      //fmt.Printf("SSE client disconnected\n")
+      if c.retryDelay == 0 {
+        return
+      }
+      /* Reconnect with exponential backoff. */
+      for {
+        time.Sleep(c.retryDelay)
+        c.retryDelay = c.retryDelay + c.retryDelay
+        r, err = c.connect()
+        if err == nil { break }
+      }
+      br = bufio.NewReader(r)
+      eventType = ""
+      dataBuffer.Reset()
+      continue
     }
+    /* Reset (and enable) the exponential backoff. */
+    c.retryDelay = 1 * time.Second
     if len(line) < 2 {
       // For Web browsers, the appropriate steps to dispatch the event are as follows:
       // Set the last event ID string of the event source to the value of the last event ID buffer. The buffer does not get reset, so the last event ID string of the event source remains set to this value until the next time it is set by the server.
@@ -67,7 +109,7 @@ func readEventSource(ch chan<- *Event, r io.ReadCloser) {
       dataBuffer.Reset()
       eventType = ""
       // Queue a task which, if the readyState attribute is set to a value other than CLOSED, dispatches the newly created event at the EventSource object.
-      ch<- &Event{lastId, type_, string(data)}
+      c.ch<- &Event{lastId, type_, string(data)}
       continue
     }
     if line[0] == byte(':') {

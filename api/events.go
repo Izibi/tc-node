@@ -2,12 +2,12 @@
 package api
 
 import (
-  "fmt"
+  //"fmt"
   "github.com/go-errors/errors"
 )
 
-func (srv *Server) Subscribe(key string, channel string) error {
-  fmt.Printf("subscribing to %s\n", channel)
+func (srv *Server) Subscribe(key string, channels []string) error {
+  //fmt.Printf("subscribing to %s\n", channels)
   var err error
   type Request struct {
     Subscribe []string `json:"subscribe"`
@@ -16,7 +16,7 @@ func (srv *Server) Subscribe(key string, channel string) error {
     Result bool `json:"result"`
     Error string `json:"error"`
   }
-  req := Request{Subscribe: []string{channel}}
+  req := Request{Subscribe: channels}
   var res Result
   err = srv.PlainRequest("/Events/" + key, req, &res)
   if err != nil { return err }
