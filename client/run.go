@@ -10,7 +10,7 @@ import (
 )
 
 type CommandEnv struct {
-  RoundNumber uint32
+  RoundNumber uint64
   PlayerNumber uint32
 }
 

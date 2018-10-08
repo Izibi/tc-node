@@ -2,7 +2,6 @@
 package client
 
 import (
-  "fmt"
   "io/ioutil"
   "time"
 
@@ -17,9 +16,12 @@ type Client interface {
   Game() *api.GameState
   NewGame(taskParams map[string]interface{}) error /* ret. key? */
   JoinGame(gameKey string) error
-  SendCommands(players []PlayerConfig) error
+  SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool
   EndOfRound(players []PlayerConfig) error
+  Events() <-chan interface{}
 }
+
+type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
 
 type client struct {
   Task string
@@ -64,8 +66,10 @@ func (c *client) Start() (err error) {
   if err != nil { return }
   err = c.loadGame()
   if err != nil { return }
-  err = c.syncGame()
-  if err != nil { return }
+  if c.game != nil {
+    err = c.syncGame()
+    if err != nil { return }
+  }
   return nil
 }
 
@@ -151,42 +155,42 @@ func (c *client) JoinGame(gameKey string) error {
   return nil
 }
 
-func (c *client) SendCommands(players []PlayerConfig) (err error) {
+func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool {
   /* TODO: add mode where command run in parallel */
   /* Assume game is synched. */
   /* Send commands */
-  for _, player := range players {
+  var err error
+  for i := 0; i < len(players); i++ {
+    var player = &players[i]
     var commands string
     commands, err = runCommand(player.CommandLine, CommandEnv{
       RoundNumber: c.game.CurrentRound,
       PlayerNumber: player.Number,
     })
-    if err != nil { return }
+    if err != nil {
+      feedback(player, "run", err)
+      return false
+    }
     err = c.remote.InputCommands(
       c.game.Key, c.game.LastBlock, uint32(player.Number),
       commands)
-    if err != nil { return }
+    if err != nil {
+      feedback(player, "send", err)
+      return false
+    }
+    feedback(player, "ok", nil)
   }
-  return
+  return true
 }
 
 func (c *client) EndOfRound(players []PlayerConfig) (err error) {
-  /* Assume game is synched. */
-  /* Send our commands */
-  err = c.SendCommands(players)
-  if err != nil { return }
+  /* Assume game is synched, and commands have been sent. */
   /* Close round. */
   _, err = c.remote.CloseRound(c.game.Key, c.game.LastBlock)
   if err != nil { return }
-  /* Wait for end-of-turn event */
-  for {
-    var ev = <-c.eventChannel
-    newBlockEvent := ev.(*NewBlockEvent)
-    if newBlockEvent != nil {
-      fmt.Printf("Round %d has ended.\n", newBlockEvent.Round)
-      break
-    }
-  }
-  /* TODO: print number of new round, and hash */
-  return
+  return nil
+}
+
+func (cl *client) Events() <-chan interface{} {
+  return cl.eventChannel
 }

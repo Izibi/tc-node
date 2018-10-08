@@ -35,7 +35,7 @@ type GameState struct {
   LastBlock string `json:"lastBlock"`
   StartedAt *string `json:"startedAt"`
   RoundEndsAt *string `json:"roundEndsAt"`
-  CurrentRound uint32 `json:"currentRound"`
+  CurrentRound uint64 `json:"currentRound"`
   IsLocked bool `json:"isLocked"`
 }
 
