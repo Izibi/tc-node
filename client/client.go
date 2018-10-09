@@ -3,6 +3,7 @@ package client
 
 import (
   "io/ioutil"
+  "sync"
   "time"
 
   "tezos-contests.izibi.com/game/api"
@@ -24,6 +25,7 @@ type Client interface {
 type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
 
 type client struct {
+  lock sync.Mutex
   Task string
   remote *api.Server
   store *block_store.Store
@@ -74,6 +76,8 @@ func (c *client) Start() (err error) {
 }
 
 func (c *client) Game() *api.GameState {
+  c.lock.Lock()
+  defer c.lock.Unlock()
   return c.game
 }
 
@@ -91,6 +95,8 @@ func (c *client) GetTimeStats() (*TimeStats, error) {
 }
 
 func (c *client) NewGame(taskParams map[string]interface{}) error {
+  c.lock.Lock()
+  defer c.lock.Unlock()
   var err error
   var intf string
   var impl string
@@ -130,6 +136,8 @@ func (c *client) NewGame(taskParams map[string]interface{}) error {
 }
 
 func (c *client) JoinGame(gameKey string) error {
+  c.lock.Lock()
+  defer c.lock.Unlock()
   var err error
   if c.game != nil {
     c.leaveGame()
@@ -156,6 +164,8 @@ func (c *client) JoinGame(gameKey string) error {
 }
 
 func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool {
+  c.lock.Lock()
+  defer c.lock.Unlock()
   /* TODO: add mode where command run in parallel */
   /* Assume game is synched. */
   /* Send commands */
@@ -184,6 +194,8 @@ func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedb
 }
 
 func (c *client) EndOfRound(players []PlayerConfig) (err error) {
+  c.lock.Lock()
+  defer c.lock.Unlock()
   /* Assume game is synched, and commands have been sent. */
   /* Close round. */
   _, err = c.remote.CloseRound(c.game.Key, c.game.LastBlock)

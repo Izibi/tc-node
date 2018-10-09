@@ -318,6 +318,10 @@ func waitUntilNextRound() bool {
   }()
   eventChannel := cl.Events()
   select {
+    /* TODO: We get a block event when a new block has been downloaded;
+       we should test whether the block is current, and keep waiting if not.
+       We should also bail out on an end-of-game events.
+     */
     case ev := <-eventChannel:
       newBlockEvent := ev.(*client.NewBlockEvent)
       if newBlockEvent != nil {
