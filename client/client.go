@@ -2,14 +2,17 @@
 package client
 
 import (
+  "fmt"
   "io/ioutil"
   "sync"
   "time"
-
+  "github.com/fatih/color"
   "tezos-contests.izibi.com/game/api"
   "tezos-contests.izibi.com/game/block_store"
   "tezos-contests.izibi.com/backend/signing"
 )
+
+var noticeFmt = color.New(color.FgHiBlack)
 
 type Client interface {
   Start() error
@@ -20,6 +23,13 @@ type Client interface {
   SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool
   EndOfRound(players []PlayerConfig) error
   Events() <-chan interface{}
+  SetNotifier(n Notifier)
+}
+
+type Notifier interface {
+  Partial(msg string)
+  Final(msg string)
+  Error(err error)
 }
 
 type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
@@ -36,6 +46,7 @@ type client struct {
   eventChannel chan interface{}
   subscriptions []string
   cmdChannel chan Command
+  notifier Notifier
 }
 
 type PlayerConfig struct {
@@ -65,12 +76,19 @@ func New(task string, remote *api.Server, store *block_store.Store, teamKeyPair 
 
 func (c *client) Start() (err error) {
   err = c.connectEventChannel()
-  if err != nil { return }
+  if err != nil { panic(err) }
   err = c.loadGame()
-  if err != nil { return }
+  if err != nil {
+    c.leaveGame()
+    return nil
+  }
   if c.game != nil {
     err = c.syncGame()
-    if err != nil { return }
+    if err != nil {
+      noticeFmt.Printf("failed to synchronize game %v\n", c.game)
+      c.leaveGame()
+      return nil
+    }
   }
   return nil
 }
@@ -101,37 +119,38 @@ func (c *client) NewGame(taskParams map[string]interface{}) error {
   var intf string
   var impl string
   c.leaveGame()
-  // fmt.Fprintf(os.Stderr, "Loading protocol\n")
+  c.notifier.Partial("Loading protocol")
   var b []byte
   b, err = ioutil.ReadFile("protocol.mli")
-  if err != nil { return err }
+  if err != nil { c.notifier.Error(err); return err }
   intf = string(b)
   b, err = ioutil.ReadFile("protocol.ml")
-  if err != nil { return err }
+  if err != nil { c.notifier.Error(err); return err }
   impl = string(b)
-  if err != nil { return err }
-  // fmt.Fprintf(os.Stderr, "Sending protocol\n")
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Partial("Sending protocol")
   protoHash, err := c.remote.AddProtocolBlock(c.Task, intf, impl)
-  if err != nil { return err }
-  // fmt.Fprintf(os.Stderr, "Performing task setup\n")
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Partial("Performing task setup")
   setupHash, err := c.remote.AddSetupBlock(protoHash, taskParams)
-  if err != nil { return err }
-  // fmt.Fprintf(os.Stderr, "Creating game\n")
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Partial("Creating game")
   var game *api.GameState
   game, err = c.remote.NewGame(setupHash);
+  if err != nil { c.notifier.Error(err); return err }
   c.game = game
   c.gameChannel = "games/" + game.Key
-  if err != nil { return err }
-  // fmt.Fprintf(os.Stderr, "Saving game state\n")
+  c.notifier.Partial("Saving game state")
   err = c.saveGame()
-  // fmt.Fprintf(os.Stderr, "Clearing store\n")
+  c.notifier.Partial("Clearing store")
   err = c.store.Clear()
-  if err != nil { return err }
-  // fmt.Fprintf(os.Stderr, "Retrieving blocks\n")
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Partial("Retrieving blocks")
   err = c.store.GetChain(game.FirstBlock, game.LastBlock)
-  if err != nil { return err }
+  if err != nil { c.notifier.Error(err); return err }
   err = c.subscribe(c.gameChannel)
-  if err != nil { return err }
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Final("Game created")
   return nil
 }
 
@@ -196,6 +215,7 @@ func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedb
 func (c *client) EndOfRound(players []PlayerConfig) (err error) {
   c.lock.Lock()
   defer c.lock.Unlock()
+  if c.game == nil { return fmt.Errorf("no current game") }
   /* Assume game is synched, and commands have been sent. */
   /* Close round. */
   _, err = c.remote.CloseRound(c.game.Key, c.game.LastBlock)
@@ -205,4 +225,8 @@ func (c *client) EndOfRound(players []PlayerConfig) (err error) {
 
 func (cl *client) Events() <-chan interface{} {
   return cl.eventChannel
+}
+
+func (cl *client) SetNotifier(notifier Notifier) {
+  cl.notifier = notifier
 }

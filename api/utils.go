@@ -49,8 +49,8 @@ func (s *Server) GetRequest(path string, result interface{}) (err error) {
   if resp.StatusCode < 200 || resp.StatusCode >= 299 {
     buf := new(bytes.Buffer)
     buf.ReadFrom(resp.Body)
-    fmt.Fprintln(os.Stderr, buf.String())
-    return errors.New(resp.Status)
+    err = errors.Errorf("Failed to GET %s: %v\n%s", s.Base + path, err, buf.String())
+    return
   }
   sr := ServerResponse{result, "", ""}
   err = json.NewDecoder(resp.Body).Decode(&sr)

@@ -3,7 +3,6 @@ package api
 
 import (
   "fmt"
-  "errors"
 )
 
 func (s *Server) AddProtocolBlock(parentHash string, intf string, impl string) (string, error) {
@@ -26,8 +25,7 @@ func (s *Server) AddProtocolBlock(parentHash string, intf string, impl string) (
   err = s.PlainRequest(path, &req, &res)
   if err != nil { return "", err }
   if res.Error != "" {
-    fmt.Printf("Error in protocol:\n%s\n%s\n", res.Error, res.Details)
-    return "", errors.New("error in protocol")
+    return "", fmt.Errorf("Error in protocol:\n%s\n%s", res.Error, res.Details)
   }
   return res.Hash, nil
 }

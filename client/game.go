@@ -33,9 +33,11 @@ func (c *client) loadGame() error {
 
 func (c *client) syncGame() error {
   var err error
+  var game *api.GameState
   // noticeFmt.Println("Retrieving game state")
-  c.game, err = c.remote.ShowGame(c.game.Key)
+  game, err = c.remote.ShowGame(c.game.Key)
   if err != nil { return err }
+  c.game = game
   // noticeFmt.Println("Saving game state")
   err = c.saveGame()
   if err != nil { return err }
@@ -55,6 +57,8 @@ func (c *client) saveGame() (err error) {
 
 func (c *client) leaveGame() {
   // TODO: unsubscribe
+  // TODO: remove game.json
+  // TODO: clear block store
   c.game = nil
   c.gameChannel = ""
 }

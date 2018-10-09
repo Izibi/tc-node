@@ -42,10 +42,18 @@ type Config struct {
   Players []client.PlayerConfig `yaml:"players"`
   EagerlySendCommands bool
   LastRoundCommandsSend uint64
+  Latency time.Duration
+  TimeDelta time.Duration
+}
+
+type Notifier struct{
+  partial bool
+  errorShown bool
 }
 
 var config Config
 var cl client.Client
+var notifier = &Notifier{}
 
 func main() {
   var err error
@@ -79,6 +87,7 @@ func main() {
       cmd = lastCommand
       fmt.Printf("> %s\n", strings.Join(cmd, " "))
     }
+    notifier.errorShown = false
     err = nil
     switch cmd[0] {
     case "new":
@@ -90,6 +99,7 @@ func main() {
         successFmt.Println(game.Key)
         _ = eagerlySendCommands()
       }
+      // Client reported the error, no display
     case "join": /* TODO: and run */
       lastCommand = []string{"play"}
       var gameKey string
@@ -125,8 +135,8 @@ func main() {
     case "exit":
       os.Exit(0)
     }
-    if err != nil {
-      fmt.Println(err)
+    if err != nil && !notifier.errorShown {
+      notifier.Error(err)
       if !interactive {
         os.Exit(1)
       }
@@ -202,11 +212,13 @@ func Startup() error {
   remote := api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
   cl = client.New(config.Task, remote, store, teamKeyPair)
+  cl.SetNotifier(notifier)
   /* Check the local time. */
   err = checkTime()
   if err != nil { return err }
   /* Start the client (will connect events, load game, and sync). */
-  cl.Start()
+  err = cl.Start()
+  if err != nil { return err }
   game := cl.Game()
   if game != nil {
     fmt.Print("Game key: ")
@@ -240,28 +252,11 @@ func loadKeyPair (filename string) (*signing.KeyPair, error) {
 }
 
 func checkTime() error {
-  fmt.Print("Checking local time... ")
   ts, err := cl.GetTimeStats()
   if err != nil { return err }
-  delta := ts.Delta
-  latency := ts.Latency
-  sign := "+"
-  if delta < 0 {
-    delta = -delta
-    sign = "-"
-  }
-  if delta >= 500 * time.Millisecond {
-    dangerFmt.Println("error")
-    noticeFmt.Printf("Local time: %s\n", ts.Local.Format(time.RFC3339))
-    noticeFmt.Printf("Server time: %s\n", ts.Server.Format(time.RFC3339))
-    noticeFmt.Printf("Latency: %s\n", latency.String())
-    noticeFmt.Print("Difference: ")
-    dangerFmt.Printf("%s%s\n", sign, delta.String())
-    importantFmt.Println("\n    Please adjust your clock!\n")
-  } else {
-    successFmt.Println("ok")
-  }
   // TODO: post results to an API for statistics?
+  config.TimeDelta = ts.Delta
+  config.Latency = ts.Latency
   return nil
 }
 
@@ -359,4 +354,30 @@ func eagerlySendCommands() error {
     return sendCommands()
   }
   return nil
+}
+
+func (n *Notifier) Partial(msg string) {
+  ansi.EraseInLine(1)
+  ansi.CursorHorizontalAbsolute(0)
+  fmt.Print(msg)
+  n.partial = true
+}
+
+func (n *Notifier) Final(msg string) {
+  if n.partial {
+    ansi.EraseInLine(1)
+    ansi.CursorHorizontalAbsolute(0)
+    fmt.Println(msg)
+  }
+  n.partial = false
+}
+
+func (n *Notifier) Error(err error) {
+  if n.partial {
+    ansi.EraseInLine(1)
+    ansi.CursorHorizontalAbsolute(0)
+    n.partial = false
+  }
+  dangerFmt.Println(err.Error())
+  n.errorShown = true
 }
