@@ -1,14 +1,11 @@
 
 /*
 
-  See https://app.swaggerhub.com/apis/epixode1/BYhZzCNUCkA/3.0.0
+  See https://app.swaggerhub.com/apis/epixode1/BYhZzCNUCkA/4.0.0
 
 */
 
 package api
-
-/* Server version range with which this version of the tool is compatible. */
-var Version string = "^3.0.0"
 
 /* This is specific to task1. */
 type GameParams struct {
