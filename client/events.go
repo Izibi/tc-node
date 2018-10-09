@@ -15,10 +15,8 @@ type NewBlockEvent struct {
 func (c *client) connectEventChannel() error {
   ch, err := sse.Connect(c.remote.Base + "/Events") // TODO: remote.Events()
   if err != nil { return err }
-  var ch2 = make(chan interface{})
-  c.eventChannel = ch2
+  c.eventChannel = make(chan interface{})
   go func() {
-    var err error
     for {
       e := <-ch
       // fmt.Printf("event: %v\n", e)
@@ -54,9 +52,10 @@ func (c *client) subscribe(name string) error {
 }
 
 func (c *client) handleKeyEvent(key string) {
+  var err error
   c.lock.Lock()
   defer c.lock.Unlock()
-  c.eventsKey = e.Data
+  c.eventsKey = key
   if len(c.subscriptions) > 0 {
     err = c.remote.Subscribe(c.eventsKey, c.subscriptions)
     if err != nil { panic(err) }
@@ -64,6 +63,7 @@ func (c *client) handleKeyEvent(key string) {
 }
 
 func (c *client) handleBlockEvent(hash string) {
+  var err error
   c.lock.Lock()
   defer c.lock.Unlock()
   /* Retrieve updated game. */
@@ -84,6 +84,6 @@ func (c *client) handleBlockEvent(hash string) {
   var ok bool
   round, ok = c.store.Index.GetRoundByHash(hash)
   if ok {
-    ch2<- &NewBlockEvent{Hash: hash, Round: round}
+    c.eventChannel<- &NewBlockEvent{Hash: hash, Round: round}
   }
 }

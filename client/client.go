@@ -33,7 +33,7 @@ type client struct {
   game *api.GameState
   gameChannel string
   eventsKey string
-  eventChannel <-chan interface{}
+  eventChannel chan interface{}
   subscriptions []string
   cmdChannel chan Command
 }
