@@ -158,7 +158,6 @@ func mainCommandCompleter(d prompt.Document) []prompt.Suggest {
   if cl.Game() != nil {
     s = append(s, []prompt.Suggest{
       {Text: "play",    Description: "Play the current game"},
-      {Text: "pause",   Description: "Pause the current game"},
       {Text: "send",    Description: "Resend commands for the next round"},
       {Text: "next",    Description: "Manually end the current round"},
     }...)
