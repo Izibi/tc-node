@@ -22,6 +22,7 @@ func runCommand(shellCmd string, env CommandEnv) (string, error) {
   )
   input := fmt.Sprintf("%d %d", env.RoundNumber, env.PlayerNumber)
   cmd.Stdin = strings.NewReader(input)
+  cmd.Stderr = os.Stderr
   var out bytes.Buffer
   cmd.Stdout = &out
   err := cmd.Run()
