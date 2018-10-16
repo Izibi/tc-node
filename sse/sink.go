@@ -98,8 +98,12 @@ func (c *client) readEventSource(r io.ReadCloser) {
       if data[len(data)-1] == '\n' {
         data = data[0:len(data)-1]
       }
-      // Let event be the result of creating an event using MessageEvent, in the relevant Realm of the EventSource object.
-      // Initialize event's type attribute to message, its data attribute to data, its origin attribute to the serialization of the origin of the event stream's final URL (i.e., the URL after redirects), and its lastEventId attribute to the last event ID string of the event source.
+      // Let event be the result of creating an event using MessageEvent, in the
+      // relevant Realm of the EventSource object. Initialize event's type
+      // attribute to "message", its data attribute to data, its origin attribute
+      // to the serialization of the origin of the event stream's final URL
+      // (i.e., the URL after redirects), and its lastEventId attribute to the
+      // last event ID string of the event source.
       type_ := "message"
       // If the event type buffer has a value other than the empty string, change the type of the newly created event to equal the value of the event type buffer.
       if eventType != "" {
