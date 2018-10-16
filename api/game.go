@@ -19,11 +19,14 @@ func (s *Server) NewGame(firstBlock string) (*GameState, error) {
   return &res, nil
 }
 
-func (s *Server) ShowGame(gameKey string) (res *GameState, err error) {
-  res = &GameState{}
-  err = s.GetRequest("/Games/"+gameKey, res)
+func (s *Server) ShowGame(gameKey string) (*GameState, error) {
+  type Response struct {
+    Game GameState `json:"game"`
+  }
+  var res = &Response{}
+  err := s.GetRequest("/Games/"+gameKey, res)
   if err != nil { return nil, err }
-  return res, nil
+  return &res.Game, nil
 }
 
 func (s *Server) InputCommands(gameKey string, currentBlock string, teamPlayer uint32, commands string) error {
