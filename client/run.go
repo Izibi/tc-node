@@ -6,6 +6,7 @@ import (
   "fmt"
   "os"
   "os/exec"
+  "runtime"
   "strings"
 )
 
@@ -15,7 +16,12 @@ type CommandEnv struct {
 }
 
 func runCommand(shellCmd string, env CommandEnv) (string, error) {
-  cmd := exec.Command("sh", "-c", shellCmd)
+  var cmd *exec.Cmd
+  if runtime.GOOS == "windows" {
+    cmd = exec.Command("cmd.exe", "/C", shellCmd)
+  } else {
+    cmd = exec.Command("sh", "-c", shellCmd)
+  }
   cmd.Env = append(os.Environ(),
     fmt.Sprintf("ROUND_NUMBER=%d", env.RoundNumber),
     fmt.Sprintf("PLAYER_NUMBER=%d", env.PlayerNumber),
