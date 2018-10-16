@@ -3,9 +3,15 @@ package client
 
 import (
   //"fmt"
+  "encoding/json"
   "strings"
   "tezos-contests.izibi.com/game/sse"
 )
+
+type Event struct {
+  Channel string `json:"channel"`
+  Payload string `json:"payload"`
+}
 
 type NewBlockEvent struct {
   Hash string
@@ -20,16 +26,21 @@ func (c *client) connectEventChannel() error {
     for {
       e := <-ch
       // fmt.Printf("event: %v\n", e)
-      if e.Type == "key" {
-        c.handleKeyEvent(e.Data)
-        continue
-      }
-      if e.Type == c.gameChannel {
-        var parts = strings.Split(e.Data, " ")
-        /* block hash */
-        if parts[0] == "block" {
-          c.handleBlockEvent(parts[1])
+      if e.Type == "message" {
+        var ev Event
+        err = json.Unmarshal([]byte(e.Data), &ev)
+        if err != nil { /* XXX report bad event */ continue }
+        if ev.Channel == "key" {
+          c.handleKeyEvent(ev.Payload)
           continue
+        }
+        if ev.Channel == c.gameChannel {
+          var parts = strings.Split(ev.Payload, " ")
+          /* block hash */
+          if parts[0] == "block" {
+            c.handleBlockEvent(parts[1])
+            continue
+          }
         }
       }
     }
