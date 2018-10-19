@@ -6,6 +6,18 @@ import (
   "github.com/go-errors/errors"
 )
 
+func (srv *Server) NewStream() (string, error) {
+  var err error
+  type Request struct {
+    Author string `json:"author"`
+    /* TODO: add a timestamp */
+  }
+  var key string
+  err = srv.SignedRequest("/Events", Request{srv.Author()}, &key)
+  if err != nil { return "", err }
+  return key, nil
+}
+
 func (srv *Server) Subscribe(key string, channels []string) error {
   //fmt.Printf("subscribing to %s\n", channels)
   var err error

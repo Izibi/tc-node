@@ -3,16 +3,15 @@ package client
 
 import (
   "fmt"
+  "os"
   "io/ioutil"
   "sync"
   "time"
-  "github.com/fatih/color"
   "tezos-contests.izibi.com/game/api"
   "tezos-contests.izibi.com/game/block_store"
+  "tezos-contests.izibi.com/game/ui"
   "tezos-contests.izibi.com/backend/signing"
 )
-
-var noticeFmt = color.New(color.FgHiBlack)
 
 type Client interface {
   Start() error
@@ -20,7 +19,8 @@ type Client interface {
   Game() *api.GameState
   NewGame(taskParams map[string]interface{}) error /* ret. key? */
   JoinGame(gameKey string) error
-  SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool
+  SyncGame() error
+  SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) (bool, error)
   EndOfRound(players []PlayerConfig) error
   Events() <-chan interface{}
   SetNotifier(n Notifier)
@@ -75,8 +75,11 @@ func New(task string, remote *api.Server, store *block_store.Store, teamKeyPair 
 }
 
 func (c *client) Start() (err error) {
-  err = c.connectEventChannel()
-  if err != nil { panic(err) }
+  err = c.connectEventStream()
+  if err != nil {
+    ui.DangerFmt.Printf("\nYour team's public key is not recognized.\n\n")
+    os.Exit(0)
+  }
   err = c.loadGame()
   if err != nil {
     c.leaveGame()
@@ -85,7 +88,7 @@ func (c *client) Start() (err error) {
   if c.game != nil {
     err = c.syncGame()
     if err != nil {
-      noticeFmt.Printf("failed to synchronize game %v\n", c.game)
+      ui.NoticeFmt.Printf("failed to synchronize game %v\n", c.game)
       c.leaveGame()
       return nil
     }
@@ -139,7 +142,7 @@ func (c *client) NewGame(taskParams map[string]interface{}) error {
   game, err = c.remote.NewGame(setupHash);
   if err != nil { c.notifier.Error(err); return err }
   c.game = game
-  c.gameChannel = "games/" + game.Key
+  c.gameChannel = "game:" + game.Key
   c.notifier.Partial("Saving game state")
   err = c.saveGame()
   c.notifier.Partial("Clearing store")
@@ -164,7 +167,7 @@ func (c *client) JoinGame(gameKey string) error {
   // noticeFmt.Println("Retrieving game state")
   c.game, err = c.remote.ShowGame(gameKey)
   if err != nil { return err }
-  c.gameChannel = "games/" + c.game.Key
+  c.gameChannel = "game:" + c.game.Key
   if err != nil { return err }
   // Subscribe to game events
   err = c.subscribe(c.gameChannel)
@@ -182,7 +185,25 @@ func (c *client) JoinGame(gameKey string) error {
   return nil
 }
 
-func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) bool {
+func (c *client) SyncGame() error {
+  c.lock.Lock()
+  defer c.lock.Unlock()
+  var err error
+  c.game, err = c.remote.ShowGame(c.game.Key)
+  if err != nil { return err }
+  c.gameChannel = "game:" + c.game.Key
+  if err != nil { return err }
+  // noticeFmt.Println("Saving game state")
+  err = c.saveGame()
+  if err != nil { return err }
+  // noticeFmt.Println("Retrieving blocks")
+  err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
+  if err != nil { return err }
+  // successFmt.Println("Success")
+  return nil
+}
+
+func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) (bool, error) {
   c.lock.Lock()
   defer c.lock.Unlock()
   /* TODO: add mode where command run in parallel */
@@ -198,18 +219,21 @@ func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedb
     })
     if err != nil {
       feedback(player, "run", err)
-      return false
+      return false, err
     }
     err = c.remote.InputCommands(
       c.game.Key, c.game.LastBlock, uint32(player.Number),
       commands)
     if err != nil {
+      if c.remote.LastError == "current block has changed" {
+        return true, err
+      }
       feedback(player, "send", err)
-      return false
+      return false, err
     }
     feedback(player, "ok", nil)
   }
-  return true
+  return false, nil
 }
 
 func (c *client) EndOfRound(players []PlayerConfig) (err error) {

@@ -2,10 +2,11 @@
 package client
 
 import (
-  //"fmt"
+  "fmt"
   "encoding/json"
   "strings"
   "tezos-contests.izibi.com/game/sse"
+  "tezos-contests.izibi.com/game/ui"
 )
 
 type Event struct {
@@ -18,29 +19,30 @@ type NewBlockEvent struct {
   Round uint64
 }
 
-func (c *client) connectEventChannel() error {
-  ch, err := sse.Connect(c.remote.Base + "/Events") // TODO: remote.Events()
+func (c *client) connectEventStream() error {
+  key, err := c.remote.NewStream()
   if err != nil { return err }
+  ch, err := sse.Connect(fmt.Sprintf("%s/Events/%s", c.remote.Base, key))
+  if err != nil { return err }
+  c.eventsKey = key
   c.eventChannel = make(chan interface{})
   go func() {
     for {
-      e := <-ch
-      // fmt.Printf("event: %v\n", e)
-      if e.Type == "message" {
-        var ev Event
-        err = json.Unmarshal([]byte(e.Data), &ev)
-        if err != nil { /* XXX report bad event */ continue }
-        if ev.Channel == "key" {
-          c.handleKeyEvent(ev.Payload)
-          continue
-        }
-        if ev.Channel == c.gameChannel {
-          var parts = strings.Split(ev.Payload, " ")
-          /* block hash */
-          if parts[0] == "block" {
-            c.handleBlockEvent(parts[1])
-            continue
-          }
+      msg := <-ch
+      if msg == "" { break }
+      var ev Event
+      err = json.Unmarshal([]byte(msg), &ev)
+      if err != nil { /* XXX report bad event */ continue }
+      if ev.Channel == c.gameChannel {
+        var parts = strings.Split(ev.Payload, " ")
+        if len(parts) == 0 { continue }
+        switch parts[0] {
+        case "ping":
+          ui.NoticeFmt.Println("ping")
+          break
+        case "block":
+          c.handleBlockEvent(parts[1])
+          break
         }
       }
     }
@@ -60,17 +62,6 @@ func (c *client) subscribe(name string) error {
   }
   c.subscriptions = append(c.subscriptions, name)
   return nil
-}
-
-func (c *client) handleKeyEvent(key string) {
-  var err error
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  c.eventsKey = key
-  if len(c.subscriptions) > 0 {
-    err = c.remote.Subscribe(c.eventsKey, c.subscriptions)
-    if err != nil { panic(err) }
-  }
 }
 
 func (c *client) handleBlockEvent(hash string) {

@@ -6,47 +6,45 @@
 package sse
 
 import (
-  //"fmt"
+  "fmt"
   "bufio"
   "bytes"
   "github.com/go-errors/errors"
   "io"
   "net/http"
+  "strconv"
   "time"
 )
-
-type Event struct {
-  LastEventId string
-  Type string
-  Data string
-}
 
 type client struct {
   uri string
   retryDelay time.Duration
-  ch chan<- *Event
+  ch chan<- string
 }
 
-func Connect(uri string) (<-chan *Event, error) {
-  ch := make(chan *Event)
-  c := &client{uri, 0, ch}
-  r, err := c.connect()
+func Connect(uri string) (<-chan string, error) {
+  ch := make(chan string)
+  c := &client{uri, 3 * time.Second, ch}
+  r, err := c.connect("")
   if err != nil { return nil, err }
   go c.readEventSource(r)
   return ch, nil
 }
 
-func (c *client) connect() (io.ReadCloser, error) {
-  //fmt.Printf("SSE client connecting to %s\n", c.uri)
+func (c *client) connect(lastId string) (io.ReadCloser, error) {
+  // fmt.Printf("SSE client connecting to %s\n", c.uri)
   req, err := http.NewRequest("GET", c.uri, nil)
   if err != nil {
-    //fmt.Printf("SSE client request failed: %v\n", err)
+    // fmt.Printf("SSE client request failed: %v\n", err)
     return nil, err
   }
   req.Header.Set("Accept", "text/event-stream")
+  if lastId != "" {
+    req.Header.Set("Last-Event-ID", lastId)
+  }
   res, err := http.DefaultClient.Do(req)
   if err != nil {
-    //fmt.Printf("SSE client GET failed: %v\n", err)
+    fmt.Printf("SSE client GET failed: %v\n", err)
     return nil, err
   }
   if res.StatusCode != 200 {
@@ -58,33 +56,58 @@ func (c *client) connect() (io.ReadCloser, error) {
 func (c *client) readEventSource(r io.ReadCloser) {
   defer r.Close()
   defer close(c.ch)
-  br := bufio.NewReader(r)
 
+  type Line struct {
+    line []byte
+    err error
+  }
+  lines := make(chan Line)
+  defer close(lines)
+  readLines := func (r io.ReadCloser) {
+    br := bufio.NewReader(r)
+    for {
+      line, err := br.ReadBytes('\n')
+      lines <- Line{line, err}
+      if err != nil {
+        break
+      }
+    }
+  }
+  go readLines(r)
+  var reconnect <-chan time.Time
+  /*  Enable to force a periodic reconnect:
+  var reconnectTicker *time.Ticker
+  reconnectTicker = time.NewTicker(5 * time.Second)
+  reconnect = reconnectTicker.C
+  */
+
+  var err error
   var lastId string
   var eventType string
   var dataBuffer *bytes.Buffer = new(bytes.Buffer)
-
   for {
-    line, err := br.ReadBytes('\n')
-    if err != nil && err != io.EOF {
-      //fmt.Printf("SSE client disconnected\n")
-      if c.retryDelay == 0 {
-        return
-      }
-      /* Reconnect with exponential backoff. */
+    var l Line
+    select {
+      case l = <-lines:
+        break
+      case <-reconnect:
+        // reconnectTicker.Stop()
+        r.Close()
+        continue
+    }
+    if l.err != nil {
       for {
         time.Sleep(c.retryDelay)
-        c.retryDelay = c.retryDelay + c.retryDelay
-        r, err = c.connect()
+        r, err = c.connect(lastId)
         if err == nil { break }
       }
-      br = bufio.NewReader(r)
+      go readLines(r)
       eventType = ""
       dataBuffer.Reset()
       continue
     }
+    line := l.line
     /* Reset (and enable) the exponential backoff. */
-    c.retryDelay = 1 * time.Second
     if len(line) < 2 {
       // For Web browsers, the appropriate steps to dispatch the event are as follows:
       // Set the last event ID string of the event source to the value of the last event ID buffer. The buffer does not get reset, so the last event ID string of the event source remains set to this value until the next time it is set by the server.
@@ -113,7 +136,9 @@ func (c *client) readEventSource(r io.ReadCloser) {
       dataBuffer.Reset()
       eventType = ""
       // Queue a task which, if the readyState attribute is set to a value other than CLOSED, dispatches the newly created event at the EventSource object.
-      c.ch<- &Event{lastId, type_, string(data)}
+      if type_ == "message" {
+        c.ch<- string(data)
+      }
       continue
     }
     if line[0] == byte(':') {
@@ -151,10 +176,18 @@ func (c *client) readEventSource(r io.ReadCloser) {
     case "id":
       // If the field value does not contain U+0000 NULL, then set the last event ID buffer to the field value.
       // Otherwise, ignore the field.
-      lastId = string(value)
+      if len(value) > 0 {
+        lastId = string(value)
+      }
     case "retry":
-      // If the field value consists of only ASCII digits, then interpret the field value as an integer in base ten, and set the event stream's reconnection time to that integer. Otherwise, ignore the field.
-      // TODO: handle retry
+      // If the field value consists of only ASCII digits, then interpret the
+      // field value as an integer in base ten, and set the event stream's
+      // reconnection time to that integer. Otherwise, ignore the field.
+      var retry int64
+      retry, err = strconv.ParseInt(string(value), 10, 64)
+      if err == nil && retry > 0 {
+        c.retryDelay = time.Duration(retry) * time.Millisecond
+      }
     case "data":
       // Append the field value to the data buffer,
       dataBuffer.Write(value)

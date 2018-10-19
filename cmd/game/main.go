@@ -11,22 +11,15 @@ import (
   "time"
 
   "gopkg.in/yaml.v2"
-  "github.com/fatih/color"
   "github.com/k0kubun/go-ansi"
   "github.com/c-bata/go-prompt"
   "github.com/eiannone/keyboard"
+  "tezos-contests.izibi.com/backend/signing"
   "tezos-contests.izibi.com/game/api"
   "tezos-contests.izibi.com/game/block_store"
-  "tezos-contests.izibi.com/backend/signing"
   "tezos-contests.izibi.com/game/client"
+  "tezos-contests.izibi.com/game/ui"
 )
-
-var successFmt = color.New(color.Bold, color.FgGreen)
-var dangerFmt = color.New(color.Bold, color.FgRed)
-var warningFmt = color.New(color.Bold, color.FgYellow)
-var importantFmt = color.New(color.Bold, color.FgHiWhite)
-var noticeFmt = color.New(color.FgHiBlack)
-var gameKeyFmt = color.New(color.Bold, color.FgWhite)
 
 type Config struct {
   BaseUrl string `yaml:"base_url"`
@@ -96,7 +89,7 @@ func main() {
       if err == nil {
         game := cl.Game()
         fmt.Printf("Game key: ")
-        successFmt.Println(game.Key)
+        ui.SuccessFmt.Println(game.Key)
         _ = eagerlySendCommands()
       }
       // Client reported the error, no display
@@ -113,9 +106,9 @@ func main() {
       err = cl.JoinGame(gameKey)
       if err == nil {
         if err != nil {
-          dangerFmt.Println("failed")
+          ui.DangerFmt.Println("failed")
         } else {
-          successFmt.Println("ok")
+          ui.SuccessFmt.Println("ok")
           _ = eagerlySendCommands()
         }
       }
@@ -201,13 +194,17 @@ func Startup() error {
   if err != nil {
     teamKeyPair, err = generateKeypair()
     if err != nil { return err }
+    fmt.Println()
     fmt.Print("A new keypair has been saved in ")
-    successFmt.Println(config.KeypairFilename)
+    ui.SuccessFmt.Println(config.KeypairFilename)
     fmt.Printf("Your team's public key: \n    ")
-    importantFmt.Printf("%s\n\n", teamKeyPair.Public)
-  } else {
-    fmt.Printf("Team key: %s\n", teamKeyPair.Public)
+    ui.ImportantFmt.Printf("%s\n\n", teamKeyPair.Public)
+    /* Exit because the new key must be associated with a team in the
+       contest's web interface before we can proceed (will not be able
+       to connect the event stream until the team key is recognized). */
+    os.Exit(0)
   }
+  fmt.Printf("Team key: %s\n", teamKeyPair.Public)
   remote := api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
   cl = client.New(config.Task, remote, store, teamKeyPair)
@@ -221,7 +218,7 @@ func Startup() error {
   game := cl.Game()
   if game != nil {
     fmt.Print("Game key: ")
-    gameKeyFmt.Println(game.Key)
+    ui.GameKeyFmt.Println(game.Key)
     _ = eagerlySendCommands()
   }
   return nil
@@ -262,27 +259,38 @@ func checkTime() error {
 func sendCommands() error {
   var err error
   var currentRound = cl.Game().CurrentRound
-  fmt.Printf("Sending commands for round %d... ", currentRound + 1)
+  fmt.Printf("Sending commands for round %d\n", currentRound + 1)
   if len(config.Players) == 0 {
-    warningFmt.Println("no 'players' configured!")
+    ui.WarningFmt.Println("no players configured!")
     return nil
   }
   var feedback = func (player *client.PlayerConfig, source string, err error) {
     if err == nil {
-      successFmt.Printf("%d ", player.Number)
+      ui.SuccessFmt.Printf("Player %d is ready\n", player.Number)
     } else {
-      dangerFmt.Printf("%d\n", player.Number)
-      fmt.Printf("Player %d: ", player.Number)
-      if source == "run" {
-        fmt.Printf("error running %s\n", player.CommandLine)
-        dangerFmt.Println(err.Error())
-      } else {
-        fmt.Printf("commands rejected by server:\n")
-        dangerFmt.Println(err.Error())
+      ui.DangerFmt.Printf("Player %d error\n", player.Number)
+      switch source {
+      case "run":
+        fmt.Printf("Error running command \"%s\"\n", player.CommandLine)
+        fmt.Println(err.Error())
+      case "send":
+        fmt.Printf("Input rejected by server\n")
+        fmt.Println(err.Error())
       }
     }
   }
-  if cl.SendCommands(config.Players, feedback) {
+  var retry bool
+  for {
+    retry, err = cl.SendCommands(config.Players, feedback)
+    if !retry {
+      return err
+    }
+    err = cl.SyncGame()
+    if err != nil {
+      return err
+    }
+  }
+  if err != nil {
     config.LastRoundCommandsSend = currentRound
     /* If the feedback function was never called with an error, the cursor is
        still at the end of the "Sending commands..." line, so add a newline. */
@@ -377,6 +385,6 @@ func (n *Notifier) Error(err error) {
     ansi.CursorHorizontalAbsolute(0)
     n.partial = false
   }
-  dangerFmt.Println(err.Error())
+  ui.DangerFmt.Println(err.Error())
   n.errorShown = true
 }

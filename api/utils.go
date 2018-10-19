@@ -17,6 +17,8 @@ type Server struct {
   ApiKey string
   teamKeyPair *signing.KeyPair
   client *http.Client
+  LastError string /* last error */
+  LastDetails string /* details of last error */
 }
 
 type ServerResponse struct {
@@ -55,7 +57,9 @@ func (s *Server) GetRequest(path string, result interface{}) (err error) {
   sr := ServerResponse{result, "", ""}
   err = json.NewDecoder(resp.Body).Decode(&sr)
   if sr.Error != "" {
-    return errors.Errorf("API error: %s\n%s", sr.Error, sr.Details)
+    s.LastError = sr.Error
+    s.LastDetails = sr.Details
+    return errors.New("API error")
   }
   return
 }
@@ -97,9 +101,10 @@ func (s *Server) SignedRequest(path string, msg interface{}, result interface{})
   resp := ServerResponse{result, "", ""}
   err = s.postRequest(path, bytes.NewReader(bs), &resp)
   if err != nil { return errors.Errorf("failed to contact API: %s", err) }
-  // TODO: print/return resp.Detail
   if resp.Error != "" {
-    return errors.Errorf("API error: %s\n%s", resp.Error, resp.Details)
+    s.LastError = resp.Error
+    s.LastDetails = resp.Details
+    return errors.New("API error")
   }
   return nil
 }

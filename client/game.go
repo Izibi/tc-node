@@ -25,7 +25,7 @@ func (c *client) loadGame() error {
   err = json.NewDecoder(bytes.NewBuffer(b)).Decode(game)
   if err != nil { return err }
   c.game = game
-  c.gameChannel = "games/" + game.Key
+  c.gameChannel = "game:" + game.Key
   err = c.subscribe(c.gameChannel)
   if err != nil { return err }
   return nil
