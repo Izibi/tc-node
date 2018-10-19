@@ -6,7 +6,7 @@ import (
   "io/ioutil"
   "encoding/json"
   "bytes"
-  "tezos-contests.izibi.com/game/api"
+  "tezos-contests.izibi.com/tc-node/api"
 )
 
 func (c *client) loadGame() error {

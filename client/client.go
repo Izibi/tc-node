@@ -7,9 +7,9 @@ import (
   "io/ioutil"
   "sync"
   "time"
-  "tezos-contests.izibi.com/game/api"
-  "tezos-contests.izibi.com/game/block_store"
-  "tezos-contests.izibi.com/game/ui"
+  "tezos-contests.izibi.com/tc-node/api"
+  "tezos-contests.izibi.com/tc-node/block_store"
+  "tezos-contests.izibi.com/tc-node/ui"
   "tezos-contests.izibi.com/backend/signing"
 )
 

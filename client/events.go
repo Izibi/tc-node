@@ -5,8 +5,8 @@ import (
   "fmt"
   "encoding/json"
   "strings"
-  "tezos-contests.izibi.com/game/sse"
-  "tezos-contests.izibi.com/game/ui"
+  "tezos-contests.izibi.com/tc-node/sse"
+  "tezos-contests.izibi.com/tc-node/ui"
 )
 
 type Event struct {
