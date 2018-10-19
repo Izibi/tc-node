@@ -85,7 +85,7 @@ func (c *client) handleBlockEvent(hash string) {
   var round uint64
   var ok bool
   round, ok = c.store.Index.GetRoundByHash(hash)
-  if ok {
+  if ok && c.sendEvents {
     c.eventChannel<- &NewBlockEvent{Hash: hash, Round: round}
   }
 }

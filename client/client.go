@@ -23,6 +23,7 @@ type Client interface {
   SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) (bool, error)
   EndOfRound(players []PlayerConfig) error
   Events() <-chan interface{}
+  Silence()
   SetNotifier(n Notifier)
 }
 
@@ -43,6 +44,7 @@ type client struct {
   game *api.GameState
   gameChannel string
   eventsKey string
+  sendEvents bool
   eventChannel chan interface{}
   subscriptions []string
   cmdChannel chan Command
@@ -248,7 +250,12 @@ func (c *client) EndOfRound(players []PlayerConfig) (err error) {
 }
 
 func (cl *client) Events() <-chan interface{} {
+  cl.sendEvents = true
   return cl.eventChannel
+}
+
+func (cl *client) Silence() {
+  cl.sendEvents = false
 }
 
 func (cl *client) SetNotifier(notifier Notifier) {

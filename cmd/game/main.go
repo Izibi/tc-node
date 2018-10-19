@@ -334,9 +334,11 @@ func waitUntilNextRound() bool {
       }
     case _, ok := <-keyboardChannel:
       if !ok {
+        cl.Silence()
         return false
       }
   }
+  cl.Silence()
   return true
 }
 
