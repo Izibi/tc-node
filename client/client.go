@@ -167,7 +167,7 @@ func (c *client) JoinGame(gameKey string) error {
   if c.game != nil {
     c.leaveGame()
   }
-  // noticeFmt.Println("Retrieving game state")
+  c.notifier.Partial("Retrieving game state")
   c.game, err = c.remote.ShowGame(gameKey)
   if err != nil { return err }
   c.gameChannel = "game:" + c.game.Key
@@ -175,16 +175,16 @@ func (c *client) JoinGame(gameKey string) error {
   // Subscribe to game events
   err = c.subscribe(c.gameChannel)
   if err != nil { return err }
-  // noticeFmt.Println("Saving game state")
+  c.notifier.Partial("Saving game state")
   err = c.saveGame()
   if err != nil { return err }
-  // noticeFmt.Println("Clearing block store")
+  c.notifier.Partial("Clearing store")
   err = c.store.Clear()
   if err != nil { return err }
-  // noticeFmt.Println("Retrieving blocks")
+  c.notifier.Partial("Retrieving blocks")
   err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
   if err != nil { return err }
-  // successFmt.Println("Success")
+  c.notifier.Final("Game joined")
   return nil
 }
 

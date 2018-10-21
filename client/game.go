@@ -2,6 +2,7 @@
 package client
 
 import (
+
   "os"
   "io/ioutil"
   "encoding/json"
@@ -34,17 +35,17 @@ func (c *client) loadGame() error {
 func (c *client) syncGame() error {
   var err error
   var game *api.GameState
-  // noticeFmt.Println("Retrieving game state")
+  c.notifier.Partial("Retrieving game state")
   game, err = c.remote.ShowGame(c.game.Key)
   if err != nil { return err }
   c.game = game
-  // noticeFmt.Println("Saving game state")
+  c.notifier.Partial("Saving game state")
   err = c.saveGame()
   if err != nil { return err }
-  // noticeFmt.Println("Retrieving blocks")
+  c.notifier.Partial("Retrieving blocks")
   err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
   if err != nil { return err }
-  // successFmt.Println("Game is up to date.")
+  c.notifier.Final("The game is up to date")
   return nil
 }
 
