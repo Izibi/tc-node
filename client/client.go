@@ -17,10 +17,11 @@ type Client interface {
   Start() error
   GetTimeStats() (*TimeStats, error)
   Game() *api.GameState
+  LastRoundNumber() (uint64, error)
   NewGame(taskParams map[string]interface{}) error /* ret. key? */
   JoinGame(gameKey string) error
   SyncGame() error
-  SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) (bool, error)
+  SendCommands(roundNumber uint64, players []PlayerConfig, feedback SendCommandsFeedback) (bool, error)
   EndOfRound(players []PlayerConfig) error
   Events() <-chan interface{}
   Silence()
@@ -205,7 +206,7 @@ func (c *client) SyncGame() error {
   return nil
 }
 
-func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedback) (bool, error) {
+func (c *client) SendCommands(roundNumber uint64, players []PlayerConfig, feedback SendCommandsFeedback) (bool, error) {
   c.lock.Lock()
   defer c.lock.Unlock()
   /* TODO: add mode where command run in parallel */
@@ -216,8 +217,8 @@ func (c *client) SendCommands(players []PlayerConfig, feedback SendCommandsFeedb
     var player = &players[i]
     var commands string
     commands, err = runCommand(player.CommandLine, CommandEnv{
-      RoundNumber: c.game.CurrentRound,
-      PlayerNumber: player.Number,
+      RoundNumber: roundNumber,
+      PlayerNumber: player.Number, /* XXX should be player rank! */
     })
     if err != nil {
       feedback(player, "run", err)
@@ -260,4 +261,11 @@ func (cl *client) Silence() {
 
 func (cl *client) SetNotifier(notifier Notifier) {
   cl.notifier = notifier
+}
+
+func (c *client) LastRoundNumber() (uint64, error) {
+  if c.game == nil { return 0, fmt.Errorf("no current game") }
+  n, ok := c.store.Index.GetRoundByHash(c.game.LastBlock)
+  if !ok { return 0, fmt.Errorf("no game state on current block") }
+  return n, nil
 }

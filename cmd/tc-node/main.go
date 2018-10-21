@@ -33,7 +33,7 @@ type Config struct {
   NewGameParams map[string]interface{} `yaml:"new_game_params"`
   Players []client.PlayerConfig `yaml:"players"`
   EagerlySendCommands bool
-  LastRoundCommandsSend uint64
+  LastRoundCommandsSent uint64
   Latency time.Duration
   TimeDelta time.Duration
 }
@@ -114,7 +114,7 @@ func main() {
       }
     case "send":
       lastCommand = cmd
-      _ = sendCommands()
+      err = sendCommands()
     case "next":
       lastCommand = cmd
       // TODO: send commands if not sent
@@ -258,7 +258,9 @@ func checkTime() error {
 
 func sendCommands() error {
   var err error
-  var currentRound = cl.Game().CurrentRound
+  var currentRound uint64
+  currentRound, err = cl.LastRoundNumber()
+  if err != nil { return err }
   fmt.Printf("Sending commands for round %d\n", currentRound + 1)
   if len(config.Players) == 0 {
     ui.WarningFmt.Println("no players configured!")
@@ -287,7 +289,7 @@ func sendCommands() error {
   }
   var retry bool
   for {
-    retry, err = cl.SendCommands(config.Players, feedback)
+    retry, err = cl.SendCommands(currentRound, config.Players, feedback)
     if !retry {
       return err
     }
@@ -297,7 +299,7 @@ func sendCommands() error {
     }
   }
   if err != nil {
-    config.LastRoundCommandsSend = currentRound
+    config.LastRoundCommandsSent = currentRound
     /* If the feedback function was never called with an error, the cursor is
        still at the end of the "Sending commands..." line, so add a newline. */
     fmt.Println("")
@@ -350,10 +352,13 @@ func waitUntilNextRound() bool {
 
 func playLoop() error {
   var err error
+  var currentRound uint64
   fmt.Println("Press Escape to stop playing the game.")
   var ok = true
   for ok {
-    if cl.Game().CurrentRound != config.LastRoundCommandsSend {
+    currentRound, err = cl.LastRoundNumber()
+    if err != nil { return err }
+    if currentRound != config.LastRoundCommandsSent {
       err = sendCommands()
       if err != nil { return err }
     }
@@ -393,6 +398,15 @@ func (n *Notifier) Error(err error) {
     ansi.CursorHorizontalAbsolute(0)
     n.partial = false
   }
-  ui.DangerFmt.Println(err.Error())
+  if err.Error() == "API error" {
+    if remote.LastError != "" {
+      ui.DangerFmt.Println(remote.LastError)
+    }
+    if remote.LastDetails != "" {
+      fmt.Println(remote.LastDetails)
+    }
+  } else {
+    ui.DangerFmt.Println(err.Error())
+  }
   n.errorShown = true
 }
