@@ -30,8 +30,7 @@ type Config struct {
   Task string `yaml:"task"`
   KeypairFilename string `yaml:"signing"`
   WatchGameUrl string `yaml:"watch_game_url"`
-  NewTaskParams map[string]interface{} `yaml:"new_task_params"`
-  NewGameParams api.GameParams `yaml:"new_game_params"`
+  NewGameParams map[string]interface{} `yaml:"new_game_params"`
   Players []client.PlayerConfig `yaml:"players"`
   EagerlySendCommands bool
   LastRoundCommandsSend uint64
@@ -86,7 +85,7 @@ func main() {
     switch cmd[0] {
     case "new":
       lastCommand = []string{"next"}
-      err = cl.NewGame(config.NewTaskParams)
+      err = cl.NewGame(config.NewGameParams)
       if err == nil {
         game := cl.Game()
         fmt.Printf("Game key: ")

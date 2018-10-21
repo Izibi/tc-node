@@ -1,12 +1,13 @@
-base_url: http://127.0.0.1:8100/task1
+base_url: https://home.epixode.fr/tezos
 api_key: z4fRNQW1xJidCuGO0l0G4eR97bkwPSdTbXSyMzeCRes=
 store_dir: store
+task: n7htSP9ot2mXM9vDdWbJ_R4Aino
 new_game_params:
+  map_side: 25
   nb_players: 1
-  map_side: 11
   nb_rounds: 10
   round_duration: 60
   cycles_per_round: 2
-my_players:
+players:
   - number: 1
-    command_line: "./team1.sh"
+    command_line: "python bot.py"
