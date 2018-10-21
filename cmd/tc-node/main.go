@@ -46,6 +46,7 @@ type Notifier struct{
 
 var config Config
 var cl client.Client
+var remote *api.Server
 var notifier = &Notifier{}
 
 func main() {
@@ -205,7 +206,7 @@ func Startup() error {
     os.Exit(0)
   }
   fmt.Printf("Team key: %s\n", teamKeyPair.Public)
-  remote := api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
+  remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
   cl = client.New(config.Task, remote, store, teamKeyPair)
   cl.SetNotifier(notifier)
@@ -276,6 +277,12 @@ func sendCommands() error {
       case "send":
         fmt.Printf("Input rejected by server\n")
         fmt.Println(err.Error())
+      }
+      if remote.LastError != "" {
+        fmt.Println(remote.LastError)
+      }
+      if remote.LastDetails != "" {
+        fmt.Println(remote.LastDetails)
       }
     }
   }

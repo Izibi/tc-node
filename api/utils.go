@@ -90,6 +90,8 @@ func (s *Server) PlainRequest(path string, msg interface{}, result interface{}) 
 }
 
 func (s *Server) SignedRequest(path string, msg interface{}, result interface{}) error {
+  s.LastError = ""
+  s.LastDetails = ""
   if s.teamKeyPair == nil {
     return errors.Errorf("team keypair is missing")
   }
