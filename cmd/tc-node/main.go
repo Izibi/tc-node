@@ -207,7 +207,7 @@ func Startup() error {
   fmt.Printf("Team key: %s\n", teamKeyPair.Public)
   remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
-  cl = client.New(config.Task, remote, store, teamKeyPair)
+  cl = client.New(config.Task, remote, store, teamKeyPair, config.Players)
   cl.SetNotifier(notifier)
   /* Check the local time. */
   err = checkTime()
@@ -289,11 +289,11 @@ func sendCommands() error {
   }
   var retry bool
   for {
-    retry, err = cl.SendCommands(currentRound, config.Players, feedback)
+    retry, err = cl.SendCommands(currentRound, feedback)
     if !retry {
       return err
     }
-    err = cl.SyncGame()
+    err = cl.ResyncGame()
     if err != nil {
       return err
     }
@@ -394,8 +394,7 @@ func (n *Notifier) Final(msg string) {
 
 func (n *Notifier) Error(err error) {
   if n.partial {
-    ansi.EraseInLine(1)
-    ansi.CursorHorizontalAbsolute(0)
+    ui.DangerFmt.Println(" failed")
     n.partial = false
   }
   if err.Error() == "API error" {

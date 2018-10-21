@@ -39,6 +39,10 @@ func (c *client) syncGame() error {
   game, err = c.remote.ShowGame(c.game.Key)
   if err != nil { return err }
   c.game = game
+  if !c.registered {
+    err = c.register()
+    if err != nil { return err }
+  }
   c.notifier.Partial("Saving game state")
   err = c.saveGame()
   if err != nil { return err }
@@ -62,4 +66,17 @@ func (c *client) leaveGame() {
   // TODO: clear block store
   c.game = nil
   c.gameChannel = ""
+  c.registered = false
+  c.playerRanks = nil
+}
+
+func (c *client) register() error {
+  var err error
+  c.notifier.Partial("Registering players")
+  var ranks []uint32
+  ranks, err = c.remote.Register(c.game.Key, uint32(len(c.players)))
+  if err != nil { return err }
+  c.registered = true
+  c.playerRanks = ranks
+  return nil
 }

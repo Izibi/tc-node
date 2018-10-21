@@ -20,8 +20,8 @@ type Client interface {
   LastRoundNumber() (uint64, error)
   NewGame(taskParams map[string]interface{}) error /* ret. key? */
   JoinGame(gameKey string) error
-  SyncGame() error
-  SendCommands(roundNumber uint64, players []PlayerConfig, feedback SendCommandsFeedback) (bool, error)
+  ResyncGame() error
+  SendCommands(roundNumber uint64, feedback SendCommandsFeedback) (bool, error)
   EndOfRound(players []PlayerConfig) error
   Events() <-chan interface{}
   Silence()
@@ -38,11 +38,14 @@ type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
 
 type client struct {
   lock sync.Mutex
-  Task string
+  task string
   remote *api.Server
   store *block_store.Store
   teamKeyPair *signing.KeyPair
+  players []PlayerConfig
   game *api.GameState
+  registered bool
+  playerRanks []uint32
   gameChannel string
   eventsKey string
   sendEvents bool
@@ -68,12 +71,13 @@ type Command interface {
   Execute() error
 }
 
-func New(task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair) Client {
+func New(task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair, players []PlayerConfig) Client {
   return &client{
-    Task: task,
+    task: task,
     remote: remote,
     store: store,
     teamKeyPair: teamKeyPair,
+    players: players,
   }
 }
 
@@ -91,6 +95,7 @@ func (c *client) Start() (err error) {
   if c.game != nil {
     err = c.syncGame()
     if err != nil {
+      c.notifier.Error(err)
       ui.NoticeFmt.Printf("failed to synchronize game %v\n", c.game)
       c.leaveGame()
       return nil
@@ -135,7 +140,7 @@ func (c *client) NewGame(taskParams map[string]interface{}) error {
   impl = string(b)
   if err != nil { c.notifier.Error(err); return err }
   c.notifier.Partial("Sending protocol")
-  protoHash, err := c.remote.AddProtocolBlock(c.Task, intf, impl)
+  protoHash, err := c.remote.AddProtocolBlock(c.task, intf, impl)
   if err != nil { c.notifier.Error(err); return err }
   c.notifier.Partial("Performing task setup")
   setupHash, err := c.remote.AddSetupBlock(protoHash, taskParams)
@@ -155,6 +160,9 @@ func (c *client) NewGame(taskParams map[string]interface{}) error {
   err = c.store.GetChain(game.FirstBlock, game.LastBlock)
   if err != nil { c.notifier.Error(err); return err }
   err = c.subscribe(c.gameChannel)
+  if err != nil { c.notifier.Error(err); return err }
+  c.notifier.Partial("Registering local players")
+  err = c.register()
   if err != nil { c.notifier.Error(err); return err }
   c.notifier.Final("Game created")
   return nil
@@ -184,57 +192,48 @@ func (c *client) JoinGame(gameKey string) error {
   c.notifier.Partial("Retrieving blocks")
   err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
   if err != nil { return err }
+  c.notifier.Partial("Registering local players")
+  err = c.register()
+  if err != nil { c.notifier.Error(err); return err }
   c.notifier.Final("Game joined")
   return nil
 }
 
-func (c *client) SyncGame() error {
+func (c *client) ResyncGame() error {
   c.lock.Lock()
   defer c.lock.Unlock()
-  var err error
-  c.game, err = c.remote.ShowGame(c.game.Key)
-  if err != nil { return err }
-  c.gameChannel = "game:" + c.game.Key
-  if err != nil { return err }
-  // noticeFmt.Println("Saving game state")
-  err = c.saveGame()
-  if err != nil { return err }
-  // noticeFmt.Println("Retrieving blocks")
-  err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
-  if err != nil { return err }
-  // successFmt.Println("Success")
-  return nil
+  return c.syncGame()
 }
 
-func (c *client) SendCommands(roundNumber uint64, players []PlayerConfig, feedback SendCommandsFeedback) (bool, error) {
+func (c *client) SendCommands(roundNumber uint64, feedback SendCommandsFeedback) (bool, error) {
   c.lock.Lock()
   defer c.lock.Unlock()
   /* TODO: add mode where command run in parallel */
   /* Assume game is synched. */
   /* Send commands */
   var err error
-  for i := 0; i < len(players); i++ {
-    var player = &players[i]
+  for i, player := range(c.players) {
+    rank := c.playerRanks[i]
     var commands string
     commands, err = runCommand(player.CommandLine, CommandEnv{
       RoundNumber: roundNumber,
-      PlayerNumber: player.Number, /* XXX should be player rank! */
+      PlayerNumber: rank, /* was player.Number */
     })
     if err != nil {
-      feedback(player, "run", err)
+      feedback(&player, "run", err)
       return false, err
     }
     err = c.remote.InputCommands(
-      c.game.Key, c.game.LastBlock, uint32(player.Number),
+      c.game.Key, c.game.LastBlock, player.Number,
       commands)
     if err != nil {
       if c.remote.LastError == "current block has changed" {
         return true, err
       }
-      feedback(player, "send", err)
+      feedback(&player, "send", err)
       return false, err
     }
-    feedback(player, "ok", nil)
+    feedback(&player, "ok", nil)
   }
   return false, nil
 }
