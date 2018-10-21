@@ -48,7 +48,7 @@ func New (baseUrl string, blocksDir string) (*Store) {
 func (s *Store) Clear() error {
   var err error
   s.blockByHash = map[string]*Block{}
-  err = os.RemoveAll(s.BlocksDir)
+  err = removeStoreDir(s.BlocksDir)
   if err != nil { return err }
   err = os.MkdirAll(s.BlocksDir, os.ModePerm)
   if err != nil { return err }
@@ -212,4 +212,27 @@ func (st *Store) loadHashes() error {
   })
   /* fail silently */
   return nil
+}
+
+func removeStoreDir(dir string) error {
+  /* On Window RemoveAll returns before the directory is deleted,
+     so rename before deleting. */
+  var err error
+  fi, err := os.Stat(dir)
+  if os.IsNotExist(err) {
+    return nil
+  }
+  if !fi.IsDir() {
+    return errors.New("store is unexpectedly not a directory")
+  }
+  var counter uint
+  for counter < 1000 {
+    newDir := fmt.Sprintf("%s.%d", dir, counter)
+    err = os.Rename(dir, newDir)
+    if err == nil {
+      return os.RemoveAll(newDir)
+    }
+    counter += 1
+  }
+  return errors.New("failed to rename store for deletion")
 }
