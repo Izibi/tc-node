@@ -217,9 +217,11 @@ func (st *Store) loadHashes() error {
 func removeStoreDir(dir string) error {
   /* On Window RemoveAll returns before the directory is deleted,
      so rename before deleting. */
+  // fmt.Printf("going to remove store dir %s\n", dir)
   var err error
   fi, err := os.Stat(dir)
   if os.IsNotExist(err) {
+    // fmt.Printf("  it does not exist, we're good\n")
     return nil
   }
   if !fi.IsDir() {
@@ -228,10 +230,13 @@ func removeStoreDir(dir string) error {
   var counter uint
   for counter < 1000 {
     newDir := fmt.Sprintf("%s.%d", dir, counter)
+    // fmt.Printf("  renaming %s to %s\n", dir, newDir)
     err = os.Rename(dir, newDir)
     if err == nil {
+      // fmt.Printf("  it worked, removing %s\n", newDir)
       return os.RemoveAll(newDir)
     }
+    // fmt.Printf("  failed to rename (%v), trying again\n", err)
     counter += 1
   }
   return errors.New("failed to rename store for deletion")
