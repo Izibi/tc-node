@@ -9,44 +9,34 @@ import (
   "os"
 )
 
-func (cl *client) Worker() chan<- Command {
-  if cl.workerChannel != nil {
+func (cl *client) Worker() (chan<- Command, chan<- Command) {
+  if cl.workerRunning {
     panic("Worker() must only be called once!")
   }
   var wch = make(chan Command, 1)
+  var ich = NewIdleChannel()
   go func() {
-    var busy bool
     for {
-      cmd := <-wch
-      if busy {
-        if cmd.isSignal {
-          continue
-        } else {
-          panic("can't")
-        }
+      var cmd Command
+      select {
+      case cmd = <-wch:
+        fmt.Printf("Processing command")
+      case cmd = <-ich.Out():
+        fmt.Printf("Processing idle command")
       }
-      go func(cmd Command) {
-        busy = true
-        err := cmd.run(cl)
-        if err != nil {
-          // TODO: possibly send an event, so this is displayed in the interactive loop?
-          cl.notifier.Error(err)
-        }
-        busy = false
-      }(cmd)
+      err := cmd.run(cl)
+      if err != nil {
+        // TODO: possibly send an event, so this is displayed in the interactive loop?
+        cl.notifier.Error(err)
+      }
     }
   }()
-  cl.workerChannel = wch
-  return wch
+  cl.workerRunning = true
+  return wch, ich.In()
 }
 
 type Command struct {
   run func (cl *client) error
-  isSignal bool
-}
-
-func (c Command) Signal() Command {
-  return Command{c.run, true}
 }
 
 func Ping() Command {

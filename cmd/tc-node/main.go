@@ -171,7 +171,7 @@ func Configure() error {
 
 func InteractiveLoop(ech <-chan interface{}) {
   kch := keyboardChannel()
-  wch := cl.Worker()
+  wch, ich := cl.Worker()
   defer keyboard.Close()
 
   wch<- client.AlwaysSendCommands()
@@ -211,21 +211,21 @@ func InteractiveLoop(ech <-chan interface{}) {
             case 0:
               return
             case 'p', 'P':
-              wch<- client.Ping().Signal()
+              ich<- client.Ping()
             case 's':
-              wch<- client.Sync().Signal()
+              ich<- client.Sync()
             case 'S':
-              wch<- client.SyncThenSendCommands().Signal()
+              ich<- client.SyncThenSendCommands()
             default:
               // fmt.Printf("ch '%c'\n", kp.ch)
           }
         case keyboard.KeyEsc, keyboard.KeyCtrlC:
           return
         case keyboard.KeySpace:
-          wch<- client.EndOfRound().Signal()
+          ich<- client.EndOfRound()
         case keyboard.KeyEnter:
           fmt.Println("Enter")
-          wch<- client.AlwaysSendCommands().Signal()
+          ich<- client.AlwaysSendCommands()
         default:
           fmt.Printf("key %v\n", kp.key)
         }

@@ -13,7 +13,7 @@ type Client interface {
 
   GetTimeStats() (*TimeStats, error)
   Connect() (<-chan interface{}, error)
-  Worker() chan<- Command
+  Worker() (chan<- Command, chan<- Command)
 
   LoadGame() error
   NewGame(taskParams map[string]interface{}) error
@@ -42,7 +42,7 @@ type client struct {
   gameChannel string
   eventsKey string
   eventChannel chan interface{}
-  workerChannel chan<- Command
+  workerRunning bool
   notifier Notifier
   roundCommandsOk uint64
 }
