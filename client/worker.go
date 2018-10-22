@@ -2,9 +2,11 @@
 package client
 
 import (
-  "io"
   "bufio"
+  "errors"
   "fmt"
+  "io"
+  "os"
 )
 
 func (cl *client) Worker() chan<- Command {
@@ -127,6 +129,9 @@ func (cl *client) sendCommands(currentRound uint64) error {
   var retry bool
   for {
     retry, err = cl.trySendCommands(currentRound)
+    if err == nil {
+      cl.roundCommandsOk = currentRound
+    }
     if !retry {
       return err
     }
@@ -135,16 +140,35 @@ func (cl *client) sendCommands(currentRound uint64) error {
       return err
     }
   }
-  cl.roundCommandsOk = currentRound
-  return nil
 }
 
 func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
   var err error
+  var log *os.File
+  var lastError error
+
+  log, err = os.OpenFile("commands.log", os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
+    0644)
+  if err != nil {
+    cl.notifier.Error(errors.New("failed to write commands.log"))
+    log = nil
+  }
+  if log != nil {
+    defer log.Close()
+    log.WriteString(fmt.Sprintf("Round: %d\n", roundNumber))
+    log.WriteString(fmt.Sprintf("NbCycles: %d\n", cl.game.NbCyclesPerRound))
+  }
+
   for i, bot := range(cl.bots) {
+
     rank := cl.botRanks[i]
-    var commands string
+
+    if log != nil {
+      log.WriteString(fmt.Sprintf("\n--- Player %d BotId %d ---\n", rank, bot.Id))
+    }
     cl.eventChannel <- BotFeedback{"started", &bot, roundNumber, rank, nil}
+
+    var commands string
     commands, err = runCommand(bot.Command, CommandEnv{
       BotId: bot.Id,
       RoundNumber: roundNumber,
@@ -152,23 +176,37 @@ func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
       NbCycles: cl.game.NbCyclesPerRound,
     })
     if err != nil {
+      lastError = err
+      if log != nil {
+        log.WriteString(fmt.Sprintf("\nError running bot: %v\n", err))
+      }
       cl.eventChannel <- BotFeedback{"executed", &bot, roundNumber, rank, err}
-      return false, err
+      continue
     }
-    err = cl.remote.InputCommands(
-      cl.game.Key, cl.game.LastBlock, bot.Id,
-      commands)
+    if log != nil {
+      log.WriteString(commands)
+    }
+
+    err = cl.remote.InputCommands(cl.game.Key, cl.game.LastBlock, bot.Id, commands)
     if err != nil {
       if cl.remote.LastError == "current block has changed" {
+        if log != nil {
+          log.WriteString("\nCommands were sent after end of block, and ignored.\n")
+        }
         cl.eventChannel <- BotFeedback{"ignored", &bot, roundNumber, rank, err}
-        return true, err
+        return true, err // retry
+      }
+      if log != nil {
+        log.WriteString(fmt.Sprintf("\nError sending commands: %v\n", err))
       }
       cl.eventChannel <- BotFeedback{"sent", &bot, roundNumber, rank, err}
       return false, err
     }
+
     cl.eventChannel <- BotFeedback{"ready", &bot, roundNumber, rank, nil}
   }
-  return false, nil
+
+  return false, lastError
 }
 
 func EndOfRound() Command {
