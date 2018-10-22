@@ -28,17 +28,17 @@ type Notifier interface {
   Error(err error)
 }
 
-type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
+type SendCommandsFeedback func(bot *BotConfig, source string, err error)
 
 type client struct {
   task string
   remote *api.Server
   store *block_store.Store
   teamKeyPair *signing.KeyPair
-  players []PlayerConfig
+  bots []BotConfig
+  botRanks []uint32
+  botsRegistered bool
   game *api.GameState
-  registered bool
-  playerRanks []uint32
   gameChannel string
   eventsKey string
   eventChannel chan interface{}
@@ -47,9 +47,9 @@ type client struct {
   roundCommandsOk uint64
 }
 
-type PlayerConfig struct {
-  Number uint32 `yaml:"number"`
-  CommandLine string `yaml:"command_line"`
+type BotConfig struct {
+  Id uint32 `yaml:"id"`
+  Command string `yaml:"command"`
 }
 
 type TimeStats struct {
@@ -59,13 +59,13 @@ type TimeStats struct {
   Delta   time.Duration
 }
 
-func New(notifier Notifier, task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair, players []PlayerConfig) Client {
+func New(notifier Notifier, task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair, bots []BotConfig) Client {
   return &client{
     task: task,
     remote: remote,
     store: store,
     teamKeyPair: teamKeyPair,
-    players: players,
+    bots: bots,
     notifier: notifier,
   }
 }
@@ -99,8 +99,8 @@ func (cl *client) LoadGame() error {
   }
   _, err = cl.syncGame()
   if err != nil { return err }
-  cl.notifier.Partial("Registering local players")
-  err = cl.register()
+  cl.notifier.Partial("Registering bots")
+  err = cl.registerBots()
   if err != nil { return err }
   return nil
 }
@@ -140,8 +140,8 @@ func (cl *client) NewGame(taskParams map[string]interface{}) error {
   if err != nil { return err }
   err = cl.subscribe(cl.gameChannel)
   if err != nil { return err }
-  cl.notifier.Partial("Registering local players")
-  err = cl.register()
+  cl.notifier.Partial("Registering bots")
+  err = cl.registerBots()
   if err != nil { return err }
   return nil
 }
@@ -165,8 +165,8 @@ func (cl *client) JoinGame(gameKey string) error {
   cl.notifier.Partial("Retrieving blocks")
   err = cl.store.GetChain(cl.game.FirstBlock, cl.game.LastBlock)
   if err != nil { return err }
-  cl.notifier.Partial("Registering local players")
-  err = cl.register()
+  cl.notifier.Partial("Registering bots")
+  err = cl.registerBots()
   if err != nil { return err }
   return nil
 }

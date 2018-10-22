@@ -27,7 +27,7 @@ type Config struct {
   KeypairFilename string `yaml:"signing"`
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams map[string]interface{} `yaml:"new_game_params"`
-  Players []client.PlayerConfig `yaml:"players"`
+  Bots []client.BotConfig `yaml:"bots"`
   LastRoundCommandsSent uint64
   Latency time.Duration
   TimeDelta time.Duration
@@ -65,6 +65,8 @@ func main() {
     SuccessFmt.Println(config.KeypairFilename)
     fmt.Printf("Your team's public key: \n    ")
     ImportantFmt.Printf("%s\n\n", teamKeyPair.Public)
+    fmt.Printf("\nProvide this key in the team tab of the web interface, and\n")
+    fmt.Printf("share your team.json file with your teammates\n")
     /* Exit because the new key must be associated with a team in the
        contest's web interface before we can proceed (will not be able
        to connect the event stream until the team key is recognized). */
@@ -75,7 +77,7 @@ func main() {
   /* Connect to the API, set up the store, and initialize the game client. */
   remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
   store = block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
-  cl = client.New(notifier, config.Task, remote, store, teamKeyPair, config.Players)
+  cl = client.New(notifier, config.Task, remote, store, teamKeyPair, config.Bots)
 
   /* Check the local time. */
   notifier.Partial("Checking the local time")
@@ -132,10 +134,11 @@ func main() {
       os.Exit(0)
     }
   }
-  fmt.Printf("Game key: ")
-  GameKeyFmt.Println(cl.Game().Key)
-
-  InteractiveLoop(ech)
+  if cl.Game() != nil {
+    fmt.Printf("Game key: ")
+    GameKeyFmt.Println(cl.Game().Key)
+    InteractiveLoop(ech)
+  }
   os.Exit(0)
 }
 
@@ -182,10 +185,15 @@ func InteractiveLoop(ech <-chan interface{}) {
         switch e := ev.(type) {
         case client.NewBlockEvent:
           wch<- client.SyncThenSendCommands()
-        case client.LocalPlayerFeedback:
-          // e.Step is "begin" | "run" | "send" | "ready"
-          if e.Step == "ready" {
-            fmt.Printf("Local player %d is ready\n", e.Player.Number)
+        case client.BotFeedback:
+          // e.Status is "start" | "executed" | "ignored" | "sent" | "ready"
+          if e.Status == "start" {
+            fmt.Printf("--- START bot id %d --- player %d --- round %d ---\n",
+              e.Round, e.Rank, e.Bot.Id)
+          }
+          if e.Status == "ready" {
+            fmt.Printf("--- READY bot id %d --- player %d --- round %d ---\n",
+              e.Round, e.Rank, e.Bot.Id)
           }
           if e.Err != nil {
             notifier.Error(e.Err)
@@ -258,7 +266,7 @@ func checkTime() error {
 }
 
 /*
-var feedback = func (player *PlayerConfig, source string, err error) {
+var feedback = func (player *BotConfig, source string, err error) {
   if err == nil {
     fmt.Printf("Local player %d is ready\n", player.Number)
   } else {

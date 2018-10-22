@@ -39,8 +39,8 @@ func (cl *client) syncGame() (uint64, error) {
   game, err = cl.remote.ShowGame(cl.game.Key)
   if err != nil { return 0, err }
   cl.game = game
-  if !cl.registered {
-    err = cl.register()
+  if !cl.botsRegistered {
+    err = cl.registerBots()
     if err != nil { return 0, err }
   }
   cl.notifier.Partial("Saving game state")
@@ -63,14 +63,14 @@ func (cl *client) saveGame() (err error) {
   return
 }
 
-func (c *client) register() error {
+func (c *client) registerBots() error {
   var err error
-  c.notifier.Partial("Registering players")
+  c.notifier.Partial("Registering bots")
   var ranks []uint32
-  ranks, err = c.remote.Register(c.game.Key, uint32(len(c.players)))
+  ranks, err = c.remote.Register(c.game.Key, uint32(len(c.bots)))
   if err != nil { return err }
-  c.registered = true
-  c.playerRanks = ranks
+  c.botsRegistered = true
+  c.botRanks = ranks
   return nil
 }
 

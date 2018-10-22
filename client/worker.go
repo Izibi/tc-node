@@ -77,16 +77,14 @@ func Ping() Command {
 
 func AlwaysSendCommands() Command {
   run := func(cl *client) error {
-    fmt.Println("AlwaysSendCommands")
-    if len(cl.players) == 0 {
-      cl.notifier.Final("no players configured!")
+    if len(cl.bots) == 0 {
+      cl.notifier.Final("no bots configured!")
       return nil
     }
     var err error
     var currentRound uint64
     currentRound, err = cl.lastRoundNumber()
     if err != nil { return err }
-    fmt.Println("AlwaysSendCommands ->")
     return cl.sendCommands(currentRound)
   }
   return Command{run: run}
@@ -115,9 +113,11 @@ func SyncThenSendCommands() Command {
   return Command{run: run}
 }
 
-type LocalPlayerFeedback struct {
-  Player *PlayerConfig
-  Step string
+type BotFeedback struct {
+  Status string
+  Bot *BotConfig
+  Round uint64
+  Rank uint32
   Err error
 }
 
@@ -141,29 +141,32 @@ func (cl *client) sendCommands(currentRound uint64) error {
 
 func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
   var err error
-  for i, player := range(cl.players) {
-    rank := cl.playerRanks[i]
+  for i, bot := range(cl.bots) {
+    rank := cl.botRanks[i]
     var commands string
-    cl.eventChannel <- LocalPlayerFeedback{&player, "begin", nil}
-    commands, err = runCommand(player.CommandLine, CommandEnv{
+    cl.eventChannel <- BotFeedback{"started", &bot, roundNumber, rank, nil}
+    commands, err = runCommand(bot.Command, CommandEnv{
+      BotId: bot.Id,
       RoundNumber: roundNumber,
-      PlayerNumber: rank, // was player.Number
+      PlayerNumber: rank,
+      NbCycles: cl.game.NbCyclesPerRound,
     })
     if err != nil {
-      cl.eventChannel <- LocalPlayerFeedback{&player, "run", err}
+      cl.eventChannel <- BotFeedback{"executed", &bot, roundNumber, rank, err}
       return false, err
     }
     err = cl.remote.InputCommands(
-      cl.game.Key, cl.game.LastBlock, player.Number,
+      cl.game.Key, cl.game.LastBlock, bot.Id,
       commands)
     if err != nil {
       if cl.remote.LastError == "current block has changed" {
+        cl.eventChannel <- BotFeedback{"ignored", &bot, roundNumber, rank, err}
         return true, err
       }
-      cl.eventChannel <- LocalPlayerFeedback{&player, "send", err}
+      cl.eventChannel <- BotFeedback{"sent", &bot, roundNumber, rank, err}
       return false, err
     }
-    cl.eventChannel <- LocalPlayerFeedback{&player, "ready", nil}
+    cl.eventChannel <- BotFeedback{"ready", &bot, roundNumber, rank, nil}
   }
   return false, nil
 }
@@ -182,33 +185,3 @@ func EndOfRound() Command {
   }
   return Command{run: run}
 }
-
-/*
-
-
-func (cl *client) endOfRound(players []PlayerConfig) (err error) {
-  return nil
-}
-
-func (cl *client) handleBlockEvent(hash string) {
-  var err error
-  // Retrieve updated game.
-  var prevLast = cl.game.LastBlock
-  cl.game, err = cl.remote.ShowGame(cl.game.Key)
-  if err != nil { panic(err) XXX recover? }
-  if hash == cl.game.LastBlock {
-    err = cl.store.GetChain(prevLast, cl.game.LastBlock)
-    if err != nil { panic(err) XXX recover? }
-    // Save game state.
-    err = cl.saveGame()
-    if err != nil { panic(err) XXX recover? }
-  } else {
-    _, err = cl.store.Get(hash)
-    if err != nil { panic(err) XXX recover? }
-  }
-  var round uint64
-  var ok bool
-  round, ok = cl.store.Index.GetRoundByHash(hash)
-  fmt.Printf("round %d %v\n", round, ok)
-}
-*/
