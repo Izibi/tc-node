@@ -6,7 +6,6 @@ import (
   "encoding/json"
   "strings"
   "tezos-contests.izibi.com/tc-node/sse"
-  "tezos-contests.izibi.com/tc-node/ui"
 )
 
 type Event struct {
@@ -14,78 +13,63 @@ type Event struct {
   Payload string `json:"payload"`
 }
 
-type NewBlockEvent struct {
-  Hash string
-  Round uint64
+type SystemEvent struct {
+  Payload string
 }
 
-func (c *client) connectEventStream() error {
-  key, err := c.remote.NewStream()
-  if err != nil { return err }
-  ch, err := sse.Connect(fmt.Sprintf("%s/Events/%s", c.remote.Base, key))
-  if err != nil { return err }
-  c.eventsKey = key
-  c.eventChannel = make(chan interface{})
+type EndOfGameEvent struct {
+  Reason string
+}
+
+type NewBlockEvent struct {
+  Hash string
+}
+
+func (cl *client) Connect() (<-chan interface{}, error) {
+  if cl.eventChannel != nil {
+    panic("Connect() must only be called once!")
+  }
+  key, err := cl.remote.NewStream()
+  if err != nil { return nil, err }
+  evs, err := sse.Connect(fmt.Sprintf("%s/Events/%s", cl.remote.Base, key))
+  if err != nil { return nil, err }
+  cl.eventsKey = key
+  ech := make(chan interface{})
   go func() {
+    defer evs.Close()
     for {
-      msg := <-ch
+      msg := <-evs.C
       if msg == "" { break }
       var ev Event
       err = json.Unmarshal([]byte(msg), &ev)
       if err != nil { /* XXX report bad event */ continue }
-      if ev.Channel == c.gameChannel {
+      if ev.Channel == "system" {
+        ech <- SystemEvent{Payload: ev.Payload}
+        continue
+      }
+      if ev.Channel == cl.gameChannel {
         var parts = strings.Split(ev.Payload, " ")
         if len(parts) == 0 { continue }
         switch parts[0] {
-        case "ping":
-          ui.NoticeFmt.Println("ping")
-          break
-        case "block":
-          c.handleBlockEvent(parts[1])
-          break
+        case "end": // ["end", reason]
+          ech <- EndOfGameEvent{Reason: parts[1]}
+        case "block": // ["block", hash]
+          ech <- NewBlockEvent{Hash: parts[1]}
+        case "ping": // ["ping" payload]
+          /* Perform PONG request directly, because the worker might be busy
+             doing the PING. */
+          err = cl.remote.Pong(cl.game.Key, parts[1])
+          if err != nil { ech<- err }
         }
       }
     }
   }()
-  return nil
+  cl.eventChannel = ech
+  return ech, nil
 }
 
-func (c *client) subscribe(name string) error {
-  for _, c := range c.subscriptions {
-    if name == c {
-      return nil
-    }
-  }
-  if c.eventsKey != "" {
-    err := c.remote.Subscribe(c.eventsKey, []string{name})
-    if err != nil { return err }
-  }
-  c.subscriptions = append(c.subscriptions, name)
+func (cl *client) subscribe(name string) error {
+  err := cl.remote.Subscribe(cl.eventsKey, []string{name})
+  if err != nil { return err }
   return nil
-}
-
-func (c *client) handleBlockEvent(hash string) {
-  var err error
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  /* Retrieve updated game. */
-  var prevLast = c.game.LastBlock
-  c.game, err = c.remote.ShowGame(c.game.Key)
-  if err != nil { panic(err) /* XXX recover? */ }
-  if hash == c.game.LastBlock {
-    err = c.store.GetChain(prevLast, c.game.LastBlock)
-    if err != nil { panic(err) /* XXX recover? */ }
-    /* Save game state. */
-    err = c.saveGame()
-    if err != nil { panic(err) /* XXX recover? */ }
-  } else {
-    _, err = c.store.Get(hash)
-    if err != nil { panic(err) /* XXX recover? */ }
-  }
-  var round uint64
-  var ok bool
-  round, ok = c.store.Index.GetRoundByHash(hash)
-  if ok && c.sendEvents {
-    c.eventChannel<- &NewBlockEvent{Hash: hash, Round: round}
-  }
 }

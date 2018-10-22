@@ -23,9 +23,10 @@ type Index struct {
 }
 
 func NewIndex(blocksDir string) *Index {
-  var idx = Index{}
-  idx.path = filepath.Join(blocksDir, "index.txt")
-  return &idx
+  return &Index{
+    path: filepath.Join(blocksDir, "index.txt"),
+    roundByHash: make(map[string]uint64),
+  }
 }
 
 func (idx *Index) Load() error {

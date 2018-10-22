@@ -2,7 +2,12 @@
 package api
 
 import (
+  "bytes"
+  "encoding/json"
+  "io"
   "fmt"
+  "net/http"
+  "github.com/go-errors/errors"
 )
 
 func (s *Server) NewGame(firstBlock string) (*GameState, error) {
@@ -64,13 +69,13 @@ func (s *Server) InputCommands(gameKey string, currentBlock string, teamPlayer u
   }, nil)
 }
 
-func (s *Server) CloseRound(gameKey string, currentBlock string) (string, error) {
+func (s *Server) CloseRound(gameKey string, currentBlock string) ([]byte, error) {
   type Request struct {
     Author string `json:"author"`
     CurrentBlock string `json:"current_block"`
   }
   type Response struct {
-    NewBlock string `json:"new_block"`
+    Commands json.RawMessage `json:"commands"`
   }
   var err error
   var res Response
@@ -79,6 +84,35 @@ func (s *Server) CloseRound(gameKey string, currentBlock string) (string, error)
     Author: s.Author(),
     CurrentBlock: currentBlock,
   }, &res)
-  if err != nil { return "", err }
-  return res.NewBlock, nil
+  if err != nil { return nil, err }
+  return res.Commands, nil
+}
+
+func (s *Server) Ping(gameKey string) (io.ReadCloser, error) {
+  var err error
+  var resp *http.Response
+  url := fmt.Sprintf("%s/Games/%s/Ping", s.Base, gameKey)
+  resp, err = http.Post(url, "text/plain", bytes.NewReader([]byte{}))
+  if err != nil { return nil, err }
+  if resp.StatusCode < 200 || resp.StatusCode >= 299 {
+    buf := new(bytes.Buffer)
+    buf.ReadFrom(resp.Body)
+    return nil, errors.Errorf("%s: %s", resp.Status, buf.String())
+  }
+  return resp.Body, nil
+}
+
+func (s *Server) Pong(gameKey string, payload string) error {
+  type Request struct {
+    Author string `json:"author"`
+    Payload string `json:"payload"`
+  }
+  var err error
+  reqPath := fmt.Sprintf("/Games/%s/Pong", gameKey)
+  err = s.SignedRequest(reqPath, Request{
+    Author: s.Author(),
+    Payload: payload,
+  }, nil)
+  if err != nil { return err }
+  return nil
 }

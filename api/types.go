@@ -34,6 +34,7 @@ type GameState struct {
   RoundEndsAt *string `json:"roundEndsAt"`
   IsLocked bool `json:"isLocked"`
   NbCyclesPerRound uint `json:"nbCyclesPerRound"`
+  CurrentRound uint32 `json:"currentRound"`
 }
 
 type AnyBlock struct {

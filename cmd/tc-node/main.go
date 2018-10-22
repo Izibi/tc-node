@@ -7,18 +7,14 @@ import (
   "io/ioutil"
   "os"
   "path/filepath"
-  "strings"
   "time"
 
   "gopkg.in/yaml.v2"
-  "github.com/k0kubun/go-ansi"
-  "github.com/c-bata/go-prompt"
   "github.com/eiannone/keyboard"
   "tezos-contests.izibi.com/backend/signing"
   "tezos-contests.izibi.com/tc-node/api"
   "tezos-contests.izibi.com/tc-node/block_store"
   "tezos-contests.izibi.com/tc-node/client"
-  "tezos-contests.izibi.com/tc-node/ui"
 )
 
 type Config struct {
@@ -32,130 +28,115 @@ type Config struct {
   WatchGameUrl string `yaml:"watch_game_url"`
   NewGameParams map[string]interface{} `yaml:"new_game_params"`
   Players []client.PlayerConfig `yaml:"players"`
-  EagerlySendCommands bool
   LastRoundCommandsSent uint64
   Latency time.Duration
   TimeDelta time.Duration
 }
 
-type Notifier struct{
-  partial bool
-  errorShown bool
-}
-
 var config Config
 var cl client.Client
 var remote *api.Server
+var store *block_store.Store
 var notifier = &Notifier{}
 
 func main() {
+
   var err error
-  /* Parse the command line and determine if running interactively, or a
-     single command. */
   flag.Parse()
   cmd := flag.Args()
-  interactive := len(cmd) == 0
+
   /* Load the configuration file. */
+  notifier.Partial("Loading config.yaml")
   err = Configure()
   if err != nil { panic(err) }
-  /* Start up */
-  err = Startup()
-  if err != nil { panic(err) }
-  /* display current status, start background sync?, etc */
-  var lastCommand = []string{""}
-  if cl.Game() != nil {
-    lastCommand = []string{"next"}
-  }
-  for interactive {
-    if interactive {
-      line := prompt.Input("> ", mainCommandCompleter)
-      line = strings.TrimLeft(line, " ")
-      cmd = strings.Split(line, " ")
-    }
-    if len(cmd) == 0 {
-      break
-    }
-    if cmd[0] == "" {
-      ansi.CursorPreviousLine(1)
-      cmd = lastCommand
-      fmt.Printf("> %s\n", strings.Join(cmd, " "))
-    }
-    notifier.errorShown = false
-    err = nil
-    switch cmd[0] {
-    case "new":
-      lastCommand = []string{"next"}
-      err = cl.NewGame(config.NewGameParams)
-      if err == nil {
-        game := cl.Game()
-        fmt.Printf("Game key: ")
-        ui.SuccessFmt.Println(game.Key)
-        _ = eagerlySendCommands()
-      }
-      // Client reported the error, no display
-    case "join": /* TODO: and run */
-      lastCommand = []string{"play"}
-      var gameKey string
-      if len(cmd) >= 2 {
-        gameKey = cmd[1]
-      } else {
-        gameKey = prompt.Input("key> ", nil)
-        gameKey = strings.TrimSpace(gameKey)
-      }
-      fmt.Printf("Joining game %s... ", gameKey)
-      err = cl.JoinGame(gameKey)
-      if err == nil {
-        if err != nil {
-          ui.DangerFmt.Println("failed")
-        } else {
-          ui.SuccessFmt.Println("ok")
-          _ = eagerlySendCommands()
-        }
-      }
-    case "send":
-      lastCommand = cmd
-      err = sendCommands()
-    case "next":
-      lastCommand = cmd
-      // TODO: send commands if not sent
-      err = cl.EndOfRound(config.Players)
-      if err != nil { break }
-      waitUntilNextRound()
-      eagerlySendCommands()
-    case "play":
-      lastCommand = cmd
-      err = playLoop()
-    case "exit":
+
+  /* Load the team's key pair */
+  notifier.Partial("Loading the team's keypair")
+  var teamKeyPair *signing.KeyPair
+  teamKeyPair, err = loadKeyPair(config.KeypairFilename)
+  if err != nil {
+    teamKeyPair, err = generateKeypair()
+    if err != nil {
+      DangerFmt.Printf("failed to generate keypair: %v\n", err)
       os.Exit(0)
     }
-    if err != nil && !notifier.errorShown {
+    notifier.Final("")
+    fmt.Print("A new keypair has been saved in ")
+    SuccessFmt.Println(config.KeypairFilename)
+    fmt.Printf("Your team's public key: \n    ")
+    ImportantFmt.Printf("%s\n\n", teamKeyPair.Public)
+    /* Exit because the new key must be associated with a team in the
+       contest's web interface before we can proceed (will not be able
+       to connect the event stream until the team key is recognized). */
+    os.Exit(0)
+  }
+  notifier.Final(fmt.Sprintf("Team key: %s", teamKeyPair.Public))
+
+  /* Connect to the API, set up the store, and initialize the game client. */
+  remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
+  store = block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
+  cl = client.New(notifier, config.Task, remote, store, teamKeyPair, config.Players)
+
+  /* Check the local time. */
+  notifier.Partial("Checking the local time")
+  err = checkTime()
+  if err != nil {
+    notifier.Error(err)
+    os.Exit(0)
+  }
+
+  notifier.Partial("Connecting to the event stream")
+  var ech <-chan interface{}
+  ech, err = cl.Connect()
+  if err != nil {
+    notifier.Error(err)
+    DangerFmt.Printf("\nFailed to connect to the event stream.\n\n")
+    fmt.Printf("Did you link your public key (above) to your team?\n");
+    os.Exit(0)
+  }
+
+  if len(cmd) == 0 {
+    /* "tc-node" reloads the current game. */
+    err = cl.LoadGame()
+    if err != nil {
       notifier.Error(err)
-      if !interactive {
-        os.Exit(1)
+      fmt.Printf("Use the new or join commands to recover.\n");
+      os.Exit(0)
+    }
+    notifier.Final("Game loaded")
+  } else {
+    switch cmd[0] {
+    case "new":
+      /* "tc-node new" creates a new game */
+      err = cl.NewGame(config.NewGameParams)
+      if err != nil {
+        notifier.Error(err)
+        os.Exit(0)
       }
+      notifier.Final("Game created")
+      break
+    case "join":
+      /* "tc-node join GAME_KEY" joins the specified game */
+      if len(cmd) < 2 {
+        DangerFmt.Print("\nUsage: join GAME_KEY\n")
+        os.Exit(0)
+      }
+      err = cl.JoinGame(cmd[1])
+      if err != nil {
+        notifier.Error(err)
+        os.Exit(0)
+      }
+      notifier.Final("Game joined")
+    default:
+      DangerFmt.Print("\nwat.\n")
+      os.Exit(0)
     }
   }
-}
+  fmt.Printf("Game key: ")
+  GameKeyFmt.Println(cl.Game().Key)
 
-func mainCommandCompleter(d prompt.Document) []prompt.Suggest {
-  input := d.TextBeforeCursor()
-  input = strings.TrimLeft(input, " ")
-  if strings.Contains(input, " ") {
-    return []prompt.Suggest{}
-  }
-  s := []prompt.Suggest{
-    {Text: "new",     Description: "Create a new game"},
-    {Text: "join",    Description: "Join and play an existing game"},
-    {Text: "exit",    Description: "Exit the game CLI"},
-  }
-  if cl.Game() != nil {
-    s = append(s, []prompt.Suggest{
-      {Text: "play",    Description: "Play the current game"},
-      {Text: "send",    Description: "Resend commands for the next round"},
-      {Text: "next",    Description: "Manually end the current round"},
-    }...)
-  }
-  return prompt.FilterHasPrefix(s, d.GetWordBeforeCursor(), true)
+  InteractiveLoop(ech)
+  os.Exit(0)
 }
 
 func Configure() error {
@@ -182,46 +163,76 @@ func Configure() error {
   }
   config.StoreCacheDir, err = filepath.Abs(config.StoreCacheDir)
   if err != nil { return err }
-  config.EagerlySendCommands = true
   return nil
 }
 
-func Startup() error {
+func InteractiveLoop(ech <-chan interface{}) {
+  kch := keyboardChannel()
+  wch := cl.Worker()
+  defer keyboard.Close()
+
+  wch<- client.AlwaysSendCommands()
+  for {
+    select {
+      /* TODO: We get a block event when a new block has been downloaded;
+         we should test whether the block is current, and keep waiting if not.
+         We should also bail out on an end-of-game events.
+       */
+      case ev := <-ech:
+        switch e := ev.(type) {
+        case client.NewBlockEvent:
+          wch<- client.SyncThenSendCommands()
+        case client.LocalPlayerFeedback:
+          // e.Step is "begin" | "run" | "send" | "ready"
+          if e.Step == "ready" {
+            fmt.Printf("Local player %d is ready\n", e.Player.Number)
+          }
+          if e.Err != nil {
+            notifier.Error(e.Err)
+          }
+        case error:
+          notifier.Error(e)
+        default:
+          fmt.Printf("event %v\n", ev)
+        }
+        // fmt.Printf("TODO: client worker <- send commands (if needed)\n")
+      case kp := <-kch:
+        switch kp.key {
+        case 0:
+          switch kp.ch {
+            case 0:
+              return
+            case 'p', 'P':
+              wch<- client.Ping().Signal()
+            case 's':
+              wch<- client.Sync().Signal()
+            case 'S':
+              wch<- client.SyncThenSendCommands().Signal()
+            default:
+              // fmt.Printf("ch '%c'\n", kp.ch)
+          }
+        case keyboard.KeyEsc, keyboard.KeyCtrlC:
+          return
+        case keyboard.KeySpace:
+          wch<- client.EndOfRound().Signal()
+        case keyboard.KeyEnter:
+          fmt.Println("Enter")
+          wch<- client.AlwaysSendCommands().Signal()
+        default:
+          fmt.Printf("key %v\n", kp.key)
+        }
+    }
+  }
+}
+
+func loadKeyPair (filename string) (*signing.KeyPair, error) {
   var err error
-  /* Load key pair */
-  var teamKeyPair *signing.KeyPair
-  teamKeyPair, err = loadKeyPair(config.KeypairFilename)
+  f, err := os.Open(filename)
   if err != nil {
-    teamKeyPair, err = generateKeypair()
-    if err != nil { return err }
-    fmt.Println()
-    fmt.Print("A new keypair has been saved in ")
-    ui.SuccessFmt.Println(config.KeypairFilename)
-    fmt.Printf("Your team's public key: \n    ")
-    ui.ImportantFmt.Printf("%s\n\n", teamKeyPair.Public)
-    /* Exit because the new key must be associated with a team in the
-       contest's web interface before we can proceed (will not be able
-       to connect the event stream until the team key is recognized). */
-    os.Exit(0)
+    return nil, err
   }
-  fmt.Printf("Team key: %s\n", teamKeyPair.Public)
-  remote = api.New(config.ApiBaseUrl, config.ApiKey, teamKeyPair)
-  store := block_store.New(config.StoreBaseUrl, config.StoreCacheDir)
-  cl = client.New(config.Task, remote, store, teamKeyPair, config.Players)
-  cl.SetNotifier(notifier)
-  /* Check the local time. */
-  err = checkTime()
-  if err != nil { return err }
-  /* Start the client (will connect events, load game, and sync). */
-  err = cl.Start()
-  if err != nil { return err }
-  game := cl.Game()
-  if game != nil {
-    fmt.Print("Game key: ")
-    ui.GameKeyFmt.Println(game.Key)
-    _ = eagerlySendCommands()
-  }
-  return nil
+  defer f.Close()
+  return signing.ReadKeyPair(f)
 }
 
 func generateKeypair() (*signing.KeyPair, error) {
@@ -237,16 +248,6 @@ func generateKeypair() (*signing.KeyPair, error) {
   return kp, nil
 }
 
-func loadKeyPair (filename string) (*signing.KeyPair, error) {
-  var err error
-  f, err := os.Open(filename)
-  if err != nil {
-    return nil, err
-  }
-  defer f.Close()
-  return signing.ReadKeyPair(f)
-}
-
 func checkTime() error {
   ts, err := cl.GetTimeStats()
   if err != nil { return err }
@@ -256,156 +257,27 @@ func checkTime() error {
   return nil
 }
 
-func sendCommands() error {
-  var err error
-  var currentRound uint64
-  currentRound, err = cl.LastRoundNumber()
-  if err != nil { return err }
-  fmt.Printf("Sending commands for round %d\n", currentRound + 1)
-  if len(config.Players) == 0 {
-    ui.WarningFmt.Println("no players configured!")
-    return nil
-  }
-  var feedback = func (player *client.PlayerConfig, source string, err error) {
-    if err == nil {
-      ui.SuccessFmt.Printf("Player %d is ready\n", player.Number)
-    } else {
-      ui.DangerFmt.Printf("Player %d error\n", player.Number)
-      switch source {
-      case "run":
-        fmt.Printf("Error running command \"%s\"\n", player.CommandLine)
-        fmt.Println(err.Error())
-      case "send":
-        fmt.Printf("Input rejected by server\n")
-        fmt.Println(err.Error())
-      }
-      if remote.LastError != "" {
-        fmt.Println(remote.LastError)
-      }
-      if remote.LastDetails != "" {
-        fmt.Println(remote.LastDetails)
-      }
-    }
-  }
-  var retry bool
-  for {
-    retry, err = cl.SendCommands(currentRound, feedback)
-    if !retry {
-      return err
-    }
-    err = cl.ResyncGame()
-    if err != nil {
-      return err
-    }
-  }
-  if err != nil {
-    config.LastRoundCommandsSent = currentRound
-    /* If the feedback function was never called with an error, the cursor is
-       still at the end of the "Sending commands..." line, so add a newline. */
-    fmt.Println("")
-  }
-  return err
-}
-
-/* Return true when a next round event has been received without error.
-   Return false if interrupted by the user, or if an error occurred. */
-func waitUntilNextRound() bool {
-  keyboardChannel := make(chan struct{})
-  go func() {
-    var err error
-    err = keyboard.Open()
-    if err == nil {
-      for {
-        ch, key, err := keyboard.GetKey()
-        if err != nil { break }
-        if key == keyboard.KeyEsc { break }
-        if ch == 0 && key == 0 && err == nil { break /* closed */ }
-      }
-    }
-    keyboard.Close()
-    close(keyboardChannel)
-    return
-  }()
-  eventChannel := cl.Events()
-  select {
-    /* TODO: We get a block event when a new block has been downloaded;
-       we should test whether the block is current, and keep waiting if not.
-       We should also bail out on an end-of-game events.
-     */
-    case ev := <-eventChannel:
-      newBlockEvent := ev.(*client.NewBlockEvent)
-      if newBlockEvent != nil {
-        fmt.Printf("Round %d has ended.\n", newBlockEvent.Round)
-        /* Closing the keyboard lib will cause keyboard.GetKey to return. */
-        keyboard.Close()
-        break
-      }
-    case _, ok := <-keyboardChannel:
-      if !ok {
-        cl.Silence()
-        return false
-      }
-  }
-  cl.Silence()
-  return true
-}
-
-func playLoop() error {
-  var err error
-  var currentRound uint64
-  fmt.Println("Press Escape to stop playing the game.")
-  var ok = true
-  for ok {
-    currentRound, err = cl.LastRoundNumber()
-    if err != nil { return err }
-    if currentRound != config.LastRoundCommandsSent {
-      err = sendCommands()
-      if err != nil { return err }
-    }
-    if !waitUntilNextRound() {
-      break
-    }
-  }
-  return nil
-}
-
-func eagerlySendCommands() error {
-  if config.EagerlySendCommands {
-    return sendCommands()
-  }
-  return nil
-}
-
-func (n *Notifier) Partial(msg string) {
-  ansi.EraseInLine(1)
-  ansi.CursorHorizontalAbsolute(0)
-  fmt.Print(msg)
-  n.partial = true
-}
-
-func (n *Notifier) Final(msg string) {
-  if n.partial {
-    ansi.EraseInLine(1)
-    ansi.CursorHorizontalAbsolute(0)
-    fmt.Println(msg)
-  }
-  n.partial = false
-}
-
-func (n *Notifier) Error(err error) {
-  if n.partial {
-    ui.DangerFmt.Println(" failed")
-    n.partial = false
-  }
-  if err.Error() == "API error" {
-    if remote.LastError != "" {
-      ui.DangerFmt.Println(remote.LastError)
-    }
-    if remote.LastDetails != "" {
-      fmt.Println(remote.LastDetails)
-    }
+/*
+var feedback = func (player *PlayerConfig, source string, err error) {
+  if err == nil {
+    fmt.Printf("Local player %d is ready\n", player.Number)
   } else {
-    ui.DangerFmt.Println(err.Error())
+    fmt.Printf("Error for local player %d\n", player.Number)
+    fmt.Printf("Player %d error\n", player.Number)
+    switch source {
+    case "run":
+      fmt.Printf("Error running command \"%s\"\n", player.CommandLine)
+      fmt.Println(err.Error())
+    case "send":
+      fmt.Printf("Input rejected by server\n")
+      fmt.Println(err.Error())
+    }
+    if cl.remote.LastError != "" {
+      fmt.Println(cl.remote.LastError)
+    }
+    if cl.remote.LastDetails != "" {
+      fmt.Println(cl.remote.LastDetails)
+    }
   }
-  n.errorShown = true
 }
+*/

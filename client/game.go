@@ -2,22 +2,22 @@
 package client
 
 import (
-
-  "os"
-  "io/ioutil"
-  "encoding/json"
   "bytes"
+  "encoding/json"
+  "fmt"
+  "io/ioutil"
+  "os"
   "tezos-contests.izibi.com/tc-node/api"
 )
 
-func (c *client) loadGame() error {
+func (cl *client) loadGame() error {
   var err error
   var b []byte
   filepath := "game.json"
   _, err = os.Stat(filepath)
   if os.IsNotExist(err) {
-    c.game = nil
-    c.gameChannel = ""
+    cl.game = nil
+    cl.gameChannel = ""
     return nil
   }
   b, err = ioutil.ReadFile(filepath)
@@ -25,49 +25,42 @@ func (c *client) loadGame() error {
   game := new(api.GameState)
   err = json.NewDecoder(bytes.NewBuffer(b)).Decode(game)
   if err != nil { return err }
-  c.game = game
-  c.gameChannel = "game:" + game.Key
-  err = c.subscribe(c.gameChannel)
+  cl.game = game
+  cl.gameChannel = "game:" + game.Key
+  err = cl.subscribe(cl.gameChannel)
   if err != nil { return err }
   return nil
 }
 
-func (c *client) syncGame() error {
+func (cl *client) syncGame() (uint64, error) {
   var err error
   var game *api.GameState
-  c.notifier.Partial("Retrieving game state")
-  game, err = c.remote.ShowGame(c.game.Key)
-  if err != nil { return err }
-  c.game = game
-  if !c.registered {
-    err = c.register()
-    if err != nil { return err }
+  cl.notifier.Partial("Retrieving game state")
+  game, err = cl.remote.ShowGame(cl.game.Key)
+  if err != nil { return 0, err }
+  cl.game = game
+  if !cl.registered {
+    err = cl.register()
+    if err != nil { return 0, err }
   }
-  c.notifier.Partial("Saving game state")
-  err = c.saveGame()
-  if err != nil { return err }
-  c.notifier.Partial("Retrieving blocks")
-  err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
-  if err != nil { return err }
-  c.notifier.Final("The game is up to date")
-  return nil
+  cl.notifier.Partial("Saving game state")
+  err = cl.saveGame()
+  if err != nil { return 0, err }
+  cl.notifier.Partial("Retrieving blocks")
+  err = cl.store.GetChain(cl.game.FirstBlock, cl.game.LastBlock)
+  if err != nil { return 0, err }
+  var currentRound uint64
+  currentRound, err = cl.lastRoundNumber()
+  if err != nil { return 0, err }
+  cl.notifier.Final(fmt.Sprintf("Up-to-date at round %d", currentRound))
+  return currentRound, nil
 }
 
-func (c *client) saveGame() (err error) {
+func (cl *client) saveGame() (err error) {
   buf := new(bytes.Buffer)
-  json.NewEncoder(buf).Encode(c.game)
+  json.NewEncoder(buf).Encode(cl.game)
   err = ioutil.WriteFile("game.json", buf.Bytes(), 0644)
   return
-}
-
-func (c *client) leaveGame() {
-  // TODO: unsubscribe
-  // TODO: remove game.json
-  // TODO: clear block store
-  c.game = nil
-  c.gameChannel = ""
-  c.registered = false
-  c.playerRanks = nil
 }
 
 func (c *client) register() error {
@@ -79,4 +72,11 @@ func (c *client) register() error {
   c.registered = true
   c.playerRanks = ranks
   return nil
+}
+
+func (cl *client) lastRoundNumber() (uint64, error) {
+  if cl.game == nil { return 0, fmt.Errorf("no current game") }
+  n, ok := cl.store.Index.GetRoundByHash(cl.game.LastBlock)
+  if !ok { return 0, fmt.Errorf("no game state on current block") }
+  return n, nil
 }

@@ -19,16 +19,26 @@ import (
 type client struct {
   uri string
   retryDelay time.Duration
+  C <-chan string
   ch chan<- string
+  closer io.Closer
+  closed bool
 }
 
-func Connect(uri string) (<-chan string, error) {
+func Connect(uri string) (*client, error) {
   ch := make(chan string)
-  c := &client{uri, 3 * time.Second, ch}
+  c := &client{uri, 3 * time.Second, ch, ch, nil, false}
   r, err := c.connect("")
   if err != nil { return nil, err }
+  c.closer = r
   go c.readEventSource(r)
-  return ch, nil
+  return c, nil
+}
+
+func (c *client) Close() error {
+  if c.closed { return nil }
+  c.closed = true
+  return c.closer.Close()
 }
 
 func (c *client) connect(lastId string) (io.ReadCloser, error) {

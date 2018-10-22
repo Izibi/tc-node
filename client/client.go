@@ -2,30 +2,24 @@
 package client
 
 import (
-  "fmt"
-  "os"
   "io/ioutil"
-  "sync"
   "time"
   "tezos-contests.izibi.com/tc-node/api"
   "tezos-contests.izibi.com/tc-node/block_store"
-  "tezos-contests.izibi.com/tc-node/ui"
   "tezos-contests.izibi.com/backend/signing"
 )
 
 type Client interface {
-  Start() error
+
   GetTimeStats() (*TimeStats, error)
-  Game() *api.GameState
-  LastRoundNumber() (uint64, error)
-  NewGame(taskParams map[string]interface{}) error /* ret. key? */
+  Connect() (<-chan interface{}, error)
+  Worker() chan<- Command
+
+  LoadGame() error
+  NewGame(taskParams map[string]interface{}) error
   JoinGame(gameKey string) error
-  ResyncGame() error
-  SendCommands(roundNumber uint64, feedback SendCommandsFeedback) (bool, error)
-  EndOfRound(players []PlayerConfig) error
-  Events() <-chan interface{}
-  Silence()
-  SetNotifier(n Notifier)
+  Game() *api.GameState
+
 }
 
 type Notifier interface {
@@ -37,7 +31,6 @@ type Notifier interface {
 type SendCommandsFeedback func(player *PlayerConfig, source string, err error)
 
 type client struct {
-  lock sync.Mutex
   task string
   remote *api.Server
   store *block_store.Store
@@ -48,11 +41,10 @@ type client struct {
   playerRanks []uint32
   gameChannel string
   eventsKey string
-  sendEvents bool
   eventChannel chan interface{}
-  subscriptions []string
-  cmdChannel chan Command
+  workerChannel chan<- Command
   notifier Notifier
+  roundCommandsOk uint64
 }
 
 type PlayerConfig struct {
@@ -67,47 +59,15 @@ type TimeStats struct {
   Delta   time.Duration
 }
 
-type Command interface {
-  Execute() error
-}
-
-func New(task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair, players []PlayerConfig) Client {
+func New(notifier Notifier, task string, remote *api.Server, store *block_store.Store, teamKeyPair *signing.KeyPair, players []PlayerConfig) Client {
   return &client{
     task: task,
     remote: remote,
     store: store,
     teamKeyPair: teamKeyPair,
     players: players,
+    notifier: notifier,
   }
-}
-
-func (c *client) Start() (err error) {
-  err = c.connectEventStream()
-  if err != nil {
-    ui.DangerFmt.Printf("\nYour team's public key is not recognized.\n\n")
-    os.Exit(0)
-  }
-  err = c.loadGame()
-  if err != nil {
-    c.leaveGame()
-    return nil
-  }
-  if c.game != nil {
-    err = c.syncGame()
-    if err != nil {
-      c.notifier.Error(err)
-      ui.NoticeFmt.Printf("failed to synchronize game %v\n", c.game)
-      c.leaveGame()
-      return nil
-    }
-  }
-  return nil
-}
-
-func (c *client) Game() *api.GameState {
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  return c.game
 }
 
 func (c *client) GetTimeStats() (*TimeStats, error) {
@@ -123,148 +83,94 @@ func (c *client) GetTimeStats() (*TimeStats, error) {
   return &TimeStats{localTime, serverTime, latency, delta}, nil
 }
 
-func (c *client) NewGame(taskParams map[string]interface{}) error {
-  c.lock.Lock()
-  defer c.lock.Unlock()
+func (cl *client) LoadGame() error {
+  var err error
+  cl.notifier.Partial("Loading game state")
+  err = cl.loadGame()
+  if err != nil { return err }
+  if cl.game == nil {
+    return nil
+  }
+  cl.notifier.Partial("Loading store index")
+  err = cl.store.Load()
+  if err != nil {
+    cl.notifier.Partial("Clearing corrupted store")
+    cl.store.Clear()
+  }
+  _, err = cl.syncGame()
+  if err != nil { return err }
+  cl.notifier.Partial("Registering local players")
+  err = cl.register()
+  if err != nil { return err }
+  return nil
+}
+
+func (cl *client) NewGame(taskParams map[string]interface{}) error {
   var err error
   var intf string
   var impl string
-  c.leaveGame()
-  c.notifier.Partial("Loading protocol")
+  cl.notifier.Partial("Loading protocol")
   var b []byte
   b, err = ioutil.ReadFile("protocol.mli")
-  if err != nil { c.notifier.Error(err); return err }
+  if err != nil { return err }
   intf = string(b)
   b, err = ioutil.ReadFile("protocol.ml")
-  if err != nil { c.notifier.Error(err); return err }
+  if err != nil { return err }
   impl = string(b)
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Partial("Sending protocol")
-  protoHash, err := c.remote.AddProtocolBlock(c.task, intf, impl)
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Partial("Performing task setup")
-  setupHash, err := c.remote.AddSetupBlock(protoHash, taskParams)
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Partial("Creating game")
+  if err != nil { return err }
+  cl.notifier.Partial("Sending protocol")
+  protoHash, err := cl.remote.AddProtocolBlock(cl.task, intf, impl)
+  if err != nil { return err }
+  cl.notifier.Partial("Performing task setup")
+  setupHash, err := cl.remote.AddSetupBlock(protoHash, taskParams)
+  if err != nil { return err }
+  cl.notifier.Partial("Creating game")
   var game *api.GameState
-  game, err = c.remote.NewGame(setupHash);
-  if err != nil { c.notifier.Error(err); return err }
-  c.game = game
-  c.gameChannel = "game:" + game.Key
-  c.notifier.Partial("Saving game state")
-  err = c.saveGame()
-  c.notifier.Partial("Clearing store")
-  err = c.store.Clear()
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Partial("Retrieving blocks")
-  err = c.store.GetChain(game.FirstBlock, game.LastBlock)
-  if err != nil { c.notifier.Error(err); return err }
-  err = c.subscribe(c.gameChannel)
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Partial("Registering local players")
-  err = c.register()
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Final("Game created")
+  game, err = cl.remote.NewGame(setupHash)
+  if err != nil { return err }
+  cl.game = game
+  cl.gameChannel = "game:" + game.Key
+  cl.notifier.Partial("Saving game state")
+  err = cl.saveGame()
+  cl.notifier.Partial("Clearing store")
+  err = cl.store.Clear()
+  if err != nil { return err }
+  cl.notifier.Partial("Retrieving blocks")
+  err = cl.store.GetChain(game.FirstBlock, game.LastBlock)
+  if err != nil { return err }
+  err = cl.subscribe(cl.gameChannel)
+  if err != nil { return err }
+  cl.notifier.Partial("Registering local players")
+  err = cl.register()
+  if err != nil { return err }
   return nil
 }
 
-func (c *client) JoinGame(gameKey string) error {
-  c.lock.Lock()
-  defer c.lock.Unlock()
+func (cl *client) JoinGame(gameKey string) error {
   var err error
-  if c.game != nil {
-    c.leaveGame()
-  }
-  c.notifier.Partial("Retrieving game state")
-  c.game, err = c.remote.ShowGame(gameKey)
+  cl.notifier.Partial("Retrieving game state")
+  cl.game, err = cl.remote.ShowGame(gameKey)
   if err != nil { return err }
-  c.gameChannel = "game:" + c.game.Key
+  cl.gameChannel = "game:" + cl.game.Key
   if err != nil { return err }
   // Subscribe to game events
-  err = c.subscribe(c.gameChannel)
+  err = cl.subscribe(cl.gameChannel)
   if err != nil { return err }
-  c.notifier.Partial("Saving game state")
-  err = c.saveGame()
+  cl.notifier.Partial("Saving game state")
+  err = cl.saveGame()
   if err != nil { return err }
-  c.notifier.Partial("Clearing store")
-  err = c.store.Clear()
+  cl.notifier.Partial("Clearing store")
+  err = cl.store.Clear()
   if err != nil { return err }
-  c.notifier.Partial("Retrieving blocks")
-  err = c.store.GetChain(c.game.FirstBlock, c.game.LastBlock)
+  cl.notifier.Partial("Retrieving blocks")
+  err = cl.store.GetChain(cl.game.FirstBlock, cl.game.LastBlock)
   if err != nil { return err }
-  c.notifier.Partial("Registering local players")
-  err = c.register()
-  if err != nil { c.notifier.Error(err); return err }
-  c.notifier.Final("Game joined")
+  cl.notifier.Partial("Registering local players")
+  err = cl.register()
+  if err != nil { return err }
   return nil
 }
 
-func (c *client) ResyncGame() error {
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  return c.syncGame()
-}
-
-func (c *client) SendCommands(roundNumber uint64, feedback SendCommandsFeedback) (bool, error) {
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  /* TODO: add mode where command run in parallel */
-  /* Assume game is synched. */
-  /* Send commands */
-  var err error
-  for i, player := range(c.players) {
-    rank := c.playerRanks[i]
-    var commands string
-    commands, err = runCommand(player.CommandLine, CommandEnv{
-      RoundNumber: roundNumber,
-      PlayerNumber: rank, /* was player.Number */
-    })
-    if err != nil {
-      feedback(&player, "run", err)
-      return false, err
-    }
-    err = c.remote.InputCommands(
-      c.game.Key, c.game.LastBlock, player.Number,
-      commands)
-    if err != nil {
-      if c.remote.LastError == "current block has changed" {
-        return true, err
-      }
-      feedback(&player, "send", err)
-      return false, err
-    }
-    feedback(&player, "ok", nil)
-  }
-  return false, nil
-}
-
-func (c *client) EndOfRound(players []PlayerConfig) (err error) {
-  c.lock.Lock()
-  defer c.lock.Unlock()
-  if c.game == nil { return fmt.Errorf("no current game") }
-  /* Assume game is synched, and commands have been sent. */
-  /* Close round. */
-  _, err = c.remote.CloseRound(c.game.Key, c.game.LastBlock)
-  if err != nil { return }
-  return nil
-}
-
-func (cl *client) Events() <-chan interface{} {
-  cl.sendEvents = true
-  return cl.eventChannel
-}
-
-func (cl *client) Silence() {
-  cl.sendEvents = false
-}
-
-func (cl *client) SetNotifier(notifier Notifier) {
-  cl.notifier = notifier
-}
-
-func (c *client) LastRoundNumber() (uint64, error) {
-  if c.game == nil { return 0, fmt.Errorf("no current game") }
-  n, ok := c.store.Index.GetRoundByHash(c.game.LastBlock)
-  if !ok { return 0, fmt.Errorf("no game state on current block") }
-  return n, nil
+func (cl *client) Game() *api.GameState {
+  return cl.game
 }

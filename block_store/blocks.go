@@ -35,14 +35,21 @@ type Store struct {
   Index *Index
 }
 
-func New (baseUrl string, blocksDir string) (*Store) {
+func New(baseUrl string, blocksDir string) (*Store) {
   store := &Store{}
   store.BaseUrl = baseUrl
   store.BlocksDir = blocksDir
   store.Index = NewIndex(blocksDir)
-  _ = store.loadHashes()
-  _ = store.Index.Load()
   return store
+}
+
+func (s *Store) Load() error {
+  var err error
+  err = s.loadHashes()
+  if err != nil { return err }
+  err = s.Index.Load()
+  if err != nil { return err }
+  return nil
 }
 
 func (s *Store) Clear() error {
