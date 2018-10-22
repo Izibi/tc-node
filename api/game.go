@@ -34,11 +34,11 @@ func (s *Server) ShowGame(gameKey string) (*GameState, error) {
   return &res.Game, nil
 }
 
-/* Register a number of players for our and retrieve their ranks in the game. */
-func (s *Server) Register(gameKey string, nbPlayers uint32) ([]uint32, error) {
+/* Register a number of bots for our team and retrieve their ranks in the game. */
+func (s *Server) Register(gameKey string, botIds []uint32) ([]uint32, error) {
   type Request struct {
     Author string `json:"author"`
-    NbPlayers uint32 `json:"nbPlayers"`
+    Ids []uint32 `json:"ids"`
   }
   type Response struct {
     Ranks []uint32 `json:"ranks"`
@@ -47,7 +47,7 @@ func (s *Server) Register(gameKey string, nbPlayers uint32) ([]uint32, error) {
   var res Response
   err := s.SignedRequest(reqPath, Request{
     Author: s.Author(),
-    NbPlayers: nbPlayers,
+    Ids: botIds,
   }, &res)
   if err != nil { return nil, err }
   return res.Ranks, nil

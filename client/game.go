@@ -66,8 +66,12 @@ func (cl *client) saveGame() (err error) {
 func (c *client) registerBots() error {
   var err error
   c.notifier.Partial("Registering bots")
+  var ids = make([]uint32, len(c.bots))
+  for i, c := range c.bots {
+    ids[i] = c.Id
+  }
   var ranks []uint32
-  ranks, err = c.remote.Register(c.game.Key, uint32(len(c.bots)))
+  ranks, err = c.remote.Register(c.game.Key, ids)
   if err != nil { return err }
   c.botsRegistered = true
   c.botRanks = ranks

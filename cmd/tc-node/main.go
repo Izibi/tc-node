@@ -189,11 +189,11 @@ func InteractiveLoop(ech <-chan interface{}) {
           // e.Status is "start" | "executed" | "ignored" | "sent" | "ready"
           if e.Status == "start" {
             fmt.Printf("--- START bot id %d --- player %d --- round %d ---\n",
-              e.Round, e.Rank, e.Bot.Id)
+              e.Bot.Id, e.Rank, e.Round)
           }
           if e.Status == "ready" {
             fmt.Printf("--- READY bot id %d --- player %d --- round %d ---\n",
-              e.Round, e.Rank, e.Bot.Id)
+              e.Bot.Id, e.Rank, e.Round)
           }
           if e.Err != nil {
             notifier.Error(e.Err)

@@ -8,6 +8,6 @@ new_game_params:
   nb_rounds: 10
   round_duration: 60
   cycles_per_round: 2
-players:
-  - number: 1
-    command_line: "python bot.py"
+bots:
+  - id: 1
+    command: "python bot.py"
