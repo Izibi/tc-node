@@ -149,8 +149,12 @@ func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
     log.WriteString(fmt.Sprintf("NbCycles: %d\n", cl.game.NbCyclesPerRound))
   }
 
-  for i, bot := range(cl.bots) {
-
+  for i := range cl.bots {
+    bot := &cl.bots[i]
+    if i >= len(cl.botRanks) {
+      /* Some bots are not playing because the game is full. */
+      break
+    }
     rank := cl.botRanks[i]
 
     if log != nil {
