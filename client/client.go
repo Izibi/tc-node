@@ -26,6 +26,7 @@ type Notifier interface {
   Partial(msg string)
   Final(msg string)
   Error(err error)
+  Warning(msg string)
 }
 
 type SendCommandsFeedback func(bot *BotConfig, source string, err error)

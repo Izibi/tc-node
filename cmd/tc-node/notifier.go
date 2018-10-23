@@ -28,6 +28,15 @@ func (n *Notifier) Final(msg string) {
   n.partial = false
 }
 
+func (n *Notifier) Warning(msg string) {
+  if n.partial {
+    ansi.EraseInLine(1)
+    ansi.CursorHorizontalAbsolute(0)
+    WarningFmt.Println(msg)
+  }
+  n.partial = false
+}
+
 func (n *Notifier) Error(err error) {
   if n.partial {
     DangerFmt.Println(" failed")
