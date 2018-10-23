@@ -75,6 +75,9 @@ func (c *client) registerBots() error {
   if err != nil { return err }
   c.botsRegistered = true
   c.botRanks = ranks
+  if len(ranks) < len(c.bots) {
+    c.notifier.Warning(fmt.Sprintf("Game is full, %d bots will play", len(ranks)))
+  }
   return nil
 }
 
