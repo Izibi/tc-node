@@ -185,19 +185,6 @@ func InteractiveLoop(ech <-chan interface{}) {
         switch e := ev.(type) {
         case client.NewBlockEvent:
           wch<- client.SyncThenSendCommands()
-        case client.BotFeedback:
-          // e.Status is "start" | "executed" | "ignored" | "sent" | "ready"
-          if e.Status == "start" {
-            fmt.Printf("--- START bot id %d --- player %d --- round %d ---\n",
-              e.Bot.Id, e.Rank, e.Round)
-          }
-          if e.Status == "ready" {
-            fmt.Printf("--- READY bot id %d --- player %d --- round %d ---\n",
-              e.Bot.Id, e.Rank, e.Round)
-          }
-          if e.Err != nil {
-            notifier.Error(e.Err)
-          }
         case error:
           notifier.Error(e)
         default:

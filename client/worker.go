@@ -157,10 +157,11 @@ func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
     }
     rank := cl.botRanks[i]
 
+    fmt.Printf("--- START bot id %d --- player %d --- round %d ---\n",
+      bot.Id, rank, roundNumber)
     if log != nil {
       log.WriteString(fmt.Sprintf("\n--- Player %d BotId %d ---\n", rank, bot.Id))
     }
-    cl.eventChannel <- BotFeedback{"started", &bot, roundNumber, rank, nil}
 
     var commands string
     commands, err = runCommand(bot.Command, CommandEnv{
@@ -174,7 +175,7 @@ func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
       if log != nil {
         log.WriteString(fmt.Sprintf("\nError running bot: %v\n", err))
       }
-      cl.eventChannel <- BotFeedback{"executed", &bot, roundNumber, rank, err}
+      cl.notifier.Error(fmt.Errorf("Bot id %d error -- see commands.log", bot.Id))
       continue
     }
     if log != nil {
@@ -187,17 +188,18 @@ func (cl *client) trySendCommands(roundNumber uint64) (bool, error) {
         if log != nil {
           log.WriteString("\nCommands were sent after end of block, and ignored.\n")
         }
-        cl.eventChannel <- BotFeedback{"ignored", &bot, roundNumber, rank, err}
+        cl.notifier.Error(fmt.Errorf("Bot id %d was too slow", bot.Id))
         return true, err // retry
       }
       if log != nil {
         log.WriteString(fmt.Sprintf("\nError sending commands: %v\n", err))
       }
-      cl.eventChannel <- BotFeedback{"sent", &bot, roundNumber, rank, err}
+      cl.notifier.Error(err)
       return false, err
     }
 
-    cl.eventChannel <- BotFeedback{"ready", &bot, roundNumber, rank, nil}
+    fmt.Printf("--- READY bot id %d --- player %d --- round %d ---\n",
+      bot.Id, rank, roundNumber)
   }
 
   return false, lastError
