@@ -173,6 +173,8 @@ func InteractiveLoop(ech <-chan interface{}) {
   kch := keyboardChannel()
   wch, ich := cl.Worker()
   defer keyboard.Close()
+  var ticker *time.Ticker
+  var tch <-chan time.Time
 
   wch<- client.AlwaysSendCommands()
   for {
@@ -191,6 +193,9 @@ func InteractiveLoop(ech <-chan interface{}) {
           fmt.Printf("event %v\n", ev)
         }
         // fmt.Printf("TODO: client worker <- send commands (if needed)\n")
+      case <-tch:
+        fmt.Printf("--- automatic end of round ---\n")
+        ich<- client.EndOfRound()
       case kp := <-kch:
         switch kp.key {
         case 0:
@@ -203,6 +208,19 @@ func InteractiveLoop(ech <-chan interface{}) {
               ich<- client.Sync()
             case 'S':
               ich<- client.SyncThenSendCommands()
+            case 'a':
+              // toggle automatic timed end-of-round
+              if ticker == nil {
+                ticker = time.NewTicker(15 * time.Second)
+                tch = ticker.C
+                fmt.Printf("Automatic play mode enabled\n")
+                fmt.Printf("Rounds will automatically end every 15 seconds\n")
+              } else {
+                ticker.Stop()
+                ticker = nil
+                tch = nil
+                fmt.Printf("Automatic play mode disabled\n")
+              }
             default:
               // fmt.Printf("ch '%c'\n", kp.ch)
           }
