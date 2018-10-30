@@ -24,9 +24,12 @@ type Client interface {
 
 type Notifier interface {
   Partial(msg string)
+  Partialf(format string, a ...interface{})
   Final(msg string)
-  Error(err error)
+  Finalf(format string, a ...interface{})
   Warning(msg string)
+  Warningf(format string, a ...interface{})
+  Error(err error)
 }
 
 type SendCommandsFeedback func(bot *BotConfig, source string, err error)

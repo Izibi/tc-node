@@ -7,6 +7,7 @@ import (
   "fmt"
   "io"
   "os"
+  "strings"
 )
 
 func (cl *client) Worker() (chan<- Command, chan<- Command) {
@@ -48,17 +49,31 @@ func Ping() Command {
     if err != nil { return err }
     br := bufio.NewReader(rc)
     defer rc.Close()
+    var nReady uint32
     for {
       var bs []byte
       bs, err = br.ReadBytes('\n')
+      if err == io.EOF { return errors.New(string(bs)) }
       if err != nil { return err }
       line := string(bs[0:len(bs)-1])
-      switch line {
-      case "OK":
-        cl.notifier.Final("All nodes are responsive")
-        return nil
+      parts := strings.Split(line, " ")
+      if len(parts) == 0 { continue }
+      switch parts[0] {
       case "timeout":
-        cl.notifier.Final("Some nodes are unresponsive")
+        cl.notifier.Warningf("Player %s (%s #%s) is not ready",
+          parts[1], parts[2][0:8], parts[3])
+      case "pong":
+        cl.notifier.Partialf("Player %s (%s #%s) is ready, latency %sms",
+          parts[1], parts[2][0:8], parts[3], parts[4])
+        nReady += 1
+      case "OK": {
+        plural := ""
+        if nReady != 1 { plural = "s" }
+        cl.notifier.Finalf("Ready with %d bot%s", nReady, plural)
+        return nil
+      }
+      case "ERROR":
+        cl.notifier.Final("\nSome bots are not ready\n")
         return nil
       }
     }

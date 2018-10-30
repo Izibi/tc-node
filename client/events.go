@@ -58,7 +58,11 @@ func (cl *client) Connect() (<-chan interface{}, error) {
         case "ping": // ["ping" payload]
           /* Perform PONG request directly, because the worker might be busy
              doing the PING. */
-          err = cl.remote.Pong(cl.game.Key, parts[1])
+          var ids = make([]uint32, len(cl.bots))
+          for i, bot := range cl.bots {
+            ids[i] = bot.Id
+          }
+          err = cl.remote.Pong(cl.game.Key, parts[1], ids)
           if err != nil { ech<- err }
         }
       }

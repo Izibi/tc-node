@@ -19,6 +19,10 @@ func (n *Notifier) Partial(msg string) {
   n.partial = true
 }
 
+func (n *Notifier) Partialf(format string, a ...interface{}) {
+  n.Partial(fmt.Sprintf(format, a...))
+}
+
 func (n *Notifier) Final(msg string) {
   if n.partial {
     ansi.EraseInLine(1)
@@ -28,6 +32,10 @@ func (n *Notifier) Final(msg string) {
   n.partial = false
 }
 
+func (n *Notifier) Finalf(format string, a ...interface{}) {
+  n.Final(fmt.Sprintf(format, a...))
+}
+
 func (n *Notifier) Warning(msg string) {
   if n.partial {
     ansi.EraseInLine(1)
@@ -35,6 +43,10 @@ func (n *Notifier) Warning(msg string) {
     WarningFmt.Println(msg)
   }
   n.partial = false
+}
+
+func (n *Notifier) Warningf(format string, a ...interface{}) {
+  n.Warning(fmt.Sprintf(format, a...))
 }
 
 func (n *Notifier) Error(err error) {
